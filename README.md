@@ -2,7 +2,7 @@
 
 ### Personal Financial Platform — Master Vision & Roadmap
 
-**Owner:** [Your Name]
+**Owner:** [IndxMatcMatch]
 **Started:** August 2026
 **Last revised:** September 2026
 **Status:** Active — Canneberge foundation shipped; platform extraction beginning
