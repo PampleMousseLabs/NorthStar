@@ -1,4 +1,4 @@
-# NORTH_STAR.md
+# NORTHSTAR.md
 
 ### Personal Financial Platform — Master Vision & Roadmap
 
