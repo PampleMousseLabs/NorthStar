@@ -18,14 +18,6 @@ dist/
 .coverage
 htmlcov/
 
-# --- Local data & caches (Stage 2+ storage lives here, never in git) ---
-data/
-cache/
-*.sqlite
-*.sqlite3
-*.db
-*.db-journal
-
 # --- Secrets / local config ---
 .env
 .env.*
