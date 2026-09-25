@@ -17,6 +17,19 @@ import requests
 TICKER_URL = "https://www.sec.gov/files/company_tickers.json"
 COMPANYFACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
 
+# Ticker -> CIK overrides where the SEC ticker file points at a registrant
+# that does not carry the financial history NorthStar needs.
+#
+# XOM: company_tickers.json resolves to CIK 0002115436 (successor registrant,
+#      ~94 concepts, no 10-K history). Annual 10-Ks and full XBRL history are
+#      filed under CIK 0000034088 (FY2025 10-K: 0000034088-26-000045).
+#
+# First concrete case of unstable ticker->CIK identity. A proper identifier
+# mapping layer (NorthStar.md Phase 2) will eventually own this table.
+CIK_OVERRIDES: dict[str, str] = {
+    "XOM": "0000034088",
+}
+
 
 class SECEdgarClient:
     def __init__(self, user_agent: str | None = None):
@@ -24,8 +37,7 @@ class SECEdgarClient:
 
         if not self.user_agent:
             raise RuntimeError(
-                "SEC_USER_AGENT is required. Set it in the terminal before "
-                "using the SEC EDGAR source."
+                "SEC_USER_AGENT is required. Run: source ~/.config/northstar/sec.env"
             )
 
         self.session = requests.Session()
@@ -48,6 +60,9 @@ class SECEdgarClient:
 
     def resolve_cik(self, ticker: str) -> str:
         ticker_upper = ticker.strip().upper()
+
+        if ticker_upper in CIK_OVERRIDES:
+            return CIK_OVERRIDES[ticker_upper]
 
         for company in self._load_ticker_map().values():
             if str(company.get("ticker", "")).upper() == ticker_upper:

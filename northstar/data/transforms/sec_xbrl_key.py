@@ -5,8 +5,8 @@ Purpose:
     Map NorthStar canonical metrics to candidate SEC XBRL concepts.
 
 Important:
-    This is a research-stage mapping and will expand over time.
-    Concepts may require industry-specific overrides.
+    This is a research-stage mapping backed by empirical presentation linkbase
+    evidence across a 10-company sample (AAPL, MSFT, JPM, BAC, PLD, O, XOM, NEE, MET, PRU).
 """
 
 from typing import Dict, List, Tuple
@@ -16,7 +16,7 @@ Concept = Tuple[str, str]
 
 # ------------------------------------------------------------------
 # Core concept candidates
-# Ordered by preference where known.
+# Ordered by preference based on statement-role frequency analysis.
 # ------------------------------------------------------------------
 
 _EXPLICIT_XBRL_ALIASES: Dict[str, dict] = {
@@ -30,8 +30,8 @@ _EXPLICIT_XBRL_ALIASES: Dict[str, dict] = {
         ],
         "industry_overrides": {
             "bank": [
-                ("us-gaap", "RevenuesNetOfInterestExpense"),
                 ("us-gaap", "Revenues"),
+                ("us-gaap", "RevenuesNetOfInterestExpense"),
                 ("us-gaap", "InterestIncomeExpenseNet"),
                 ("us-gaap", "NoninterestIncome"),
             ],
