@@ -22,8 +22,9 @@ Concept = Tuple[str, str]
 _EXPLICIT_XBRL_ALIASES: Dict[str, dict] = {
     "revenue": {
         "default_concepts": [
-            ("us-gaap", "RevenueFromContractWithCustomerExcludingAssessedTax"),
             ("us-gaap", "Revenues"),
+            ("us-gaap", "RevenueFromContractWithCustomerExcludingAssessedTax"),
+            ("us-gaap", "RegulatedAndUnregulatedOperatingRevenue"),
             ("us-gaap", "SalesRevenueNet"),
             ("us-gaap", "OperatingRevenues"),
         ],
@@ -38,6 +39,10 @@ _EXPLICIT_XBRL_ALIASES: Dict[str, dict] = {
                 ("us-gaap", "Revenues"),
                 ("us-gaap", "RealEstateRevenueNet"),
                 ("us-gaap", "OperatingLeasesIncomeStatementLeaseRevenue"),
+            ],
+            "utility": [
+                ("us-gaap", "RegulatedAndUnregulatedOperatingRevenue"),
+                ("us-gaap", "Revenues"),
             ],
         },
         "units": ["USD"],

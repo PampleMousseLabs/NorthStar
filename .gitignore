@@ -33,3 +33,6 @@ Thumbs.db
 
 # --- Notebooks ---
 .ipynb_checkpoints/
+
+# --- XBRL research artifacts (large, regenerable) ---
+Dev_tools/xbrl/runlogs/
