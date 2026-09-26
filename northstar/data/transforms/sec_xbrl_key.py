@@ -2,7 +2,7 @@
 NorthStar SEC XBRL concept mapping.
 
 Income statement backbone, top to bottom.
-Evidence: 10-company CompanyFacts harvest + presentation roles + filing checks
+Evidence: 100-company CompanyFacts waterfall + presentation roles + filing checks
 (XOM 0000034088-26-000045, JPM 0001628280-26-008131, BAC 0000070858-26-000157,
 PRU 0001137774-26-000048).
 
@@ -38,6 +38,8 @@ _EXPLICIT_XBRL_ALIASES: Dict[str, dict] = {
         [
             ("us-gaap", "Revenues"),
             ("us-gaap", "RevenueFromContractWithCustomerExcludingAssessedTax"),
+            # Evidence: ARE FY2025 (REIT) reports only the IncludingAssessedTax variant
+            ("us-gaap", "RevenueFromContractWithCustomerIncludingAssessedTax"),
             ("us-gaap", "RegulatedAndUnregulatedOperatingRevenue"),
             ("us-gaap", "SalesRevenueNet"),
             ("us-gaap", "OperatingRevenues"),
@@ -104,15 +106,46 @@ _EXPLICIT_XBRL_ALIASES: Dict[str, dict] = {
     "pretax_income": _annual(
         [
             ("us-gaap", "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest"),
+            ("us-gaap", "IncomeLossFromContinuingOperationsBeforeIncomeTaxes"),
             ("us-gaap", "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments"),
         ],
         ["USD"],
     ),
+    "pretax_income_domestic": _annual(
+        # Component. Used to derive pretax when no consolidated pretax tag exists.
+        # Evidence: BNY FY2025 4,431 + 2,627 = 7,058 = ProfitLoss 5,583 + tax 1,475
+        [("us-gaap", "IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic")],
+        ["USD"],
+    ),
+    "pretax_income_foreign": _annual(
+        [("us-gaap", "IncomeLossFromContinuingOperationsBeforeIncomeTaxesForeign")],
+        ["USD"],
+    ),
     "taxes": _annual([("us-gaap", "IncomeTaxExpenseBenefit")], ["USD"]),
+    "equity_method_earnings": _annual(
+        # Bridge line between pretax_income and net_income_incl_nci.
+        # Evidence (exact match): ALB 243.7M, AMZN -554.0M, APTV -38.0M, AMCR 5.0M
+        [("us-gaap", "IncomeLossFromEquityMethodInvestments")],
+        ["USD"],
+    ),
+    "discontinued_operations": _annual(
+        # Bridge line between pretax_income and net_income_incl_nci.
+        # Including-NCI concept first, since the bridge targets income incl. NCI.
+        # Evidence (exact match): BG -3.0M, CARR 29.0M (NetOfTax);
+        #                         AMD 66.0M, APP -99.4M (AttributableToReportingEntity);
+        #                         APD -8.0M (both)
+        [
+            ("us-gaap", "IncomeLossFromDiscontinuedOperationsNetOfTax"),
+            ("us-gaap", "IncomeLossFromDiscontinuedOperationsNetOfTaxAttributableToReportingEntity"),
+        ],
+        ["USD"],
+    ),
     "net_income_incl_nci": _annual(
-        # Evidence: XOM FY2025 41,268 - 11,504 = 29,764
+        # Evidence: XOM FY2025 41,268 - 11,504 = 29,764 (ProfitLoss)
+        # Evidence: ACN FY2025 10,270.4 - 2,438.0 = 7,832.4 (ContinuingOperations...IncludingPortion)
         [
             ("us-gaap", "ProfitLoss"),
+            ("us-gaap", "IncomeLossFromContinuingOperationsIncludingPortionAttributableToNoncontrollingInterest"),
             ("us-gaap", "NetIncomeLoss"),
         ],
         ["USD"],

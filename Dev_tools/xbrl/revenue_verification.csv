@@ -1,0 +1,11 @@
+ticker,status,latest_tag,latest_end,claimed_value,filing_url,statement_line_label,statement_value,same_entity,verdict,notes
+AAPL,MIXED,RevenueFromContractWithCustomerExcludingAssessedTax,2025-09-27,416161000000,https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/0000320193-25-000079-index.htm,,,,,
+MSFT,MIXED,RevenueFromContractWithCustomerExcludingAssessedTax,2026-06-30,331839000000,https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/0001193125-26-323660-index.htm,,,,,
+JPM,MATCH,Revenues,2025-12-31,182447000000,https://www.sec.gov/Archives/edgar/data/19617/000162828026008131/0001628280-26-008131-index.htm,,,,,
+BAC,MATCH,Revenues,2025-12-31,113097000000,https://www.sec.gov/Archives/edgar/data/70858/000007085826000157/0000070858-26-000157-index.htm,,,,,
+PLD,MATCH,Revenues,2025-12-31,8790127000,https://www.sec.gov/Archives/edgar/data/1045609/000119312526051453/0001193125-26-051453-index.htm,,,,,
+O,MIXED,Revenues,2025-12-31,5749377000,https://www.sec.gov/Archives/edgar/data/726728/000072672826000011/0000726728-26-000011-index.htm,,,,,
+XOM,MATCH,Revenues,2025-12-31,332238000000,https://www.sec.gov/Archives/edgar/data/34088/000003408826000045/0000034088-26-000045-index.htm,,,,,
+NEE,MIXED,RegulatedAndUnregulatedOperatingRevenue,2025-12-31,27412000000,https://www.sec.gov/Archives/edgar/data/753308/000075330826000015/0000753308-26-000015-index.htm,,,,,
+MET,MATCH,Revenues,2025-12-31,77084000000,https://www.sec.gov/Archives/edgar/data/1099219/000109921926000013/0001099219-26-000013-index.htm,,,,,
+PRU,MATCH,Revenues,2025-12-31,60774000000,https://www.sec.gov/Archives/edgar/data/1137774/000113777426000048/0001137774-26-000048-index.htm,,,,,

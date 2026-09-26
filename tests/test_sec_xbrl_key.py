@@ -9,7 +9,8 @@ FULL_IS_METRICS = (
     "revenue", "cogs", "gross_profit", "sga", "rd",
     "operating_expenses", "depreciation_amortization",
     "operating_income", "interest_expense", "other_income",
-    "pretax_income", "taxes",
+    "pretax_income", "pretax_income_domestic", "pretax_income_foreign", "taxes",
+    "equity_method_earnings", "discontinued_operations",
     "net_income_incl_nci", "minority_interest", "net_income",
     "eps_basic", "eps_diluted", "shares_basic", "shares_diluted",
 )
@@ -30,23 +31,48 @@ def test_top_half_keys_exist():
 
 def test_bottom_half_still_correct():
     assert get_xbrl_concepts("revenue")[0] == ("us-gaap", "Revenues")
+    assert ("us-gaap", "RevenueFromContractWithCustomerIncludingAssessedTax") in get_xbrl_concepts("revenue")
     assert get_xbrl_concepts("revenue", industry="utility")[0] == ("us-gaap", "RegulatedAndUnregulatedOperatingRevenue")
     assert get_xbrl_concepts("operating_income")[0] == ("us-gaap", "OperatingIncomeLoss")
     assert get_xbrl_concepts("operating_income", industry="bank") == []
     assert get_xbrl_concepts("taxes")[0] == ("us-gaap", "IncomeTaxExpenseBenefit")
     assert get_xbrl_concepts("net_income")[0] == ("us-gaap", "NetIncomeLoss")
-    assert get_xbrl_concepts("net_income_incl_nci")[0] == ("us-gaap", "ProfitLoss")
+
+    incl = get_xbrl_concepts("net_income_incl_nci")
+    assert incl[0] == ("us-gaap", "ProfitLoss")
+    assert incl[1] == ("us-gaap", "IncomeLossFromContinuingOperationsIncludingPortionAttributableToNoncontrollingInterest")
+    assert incl[-1] == ("us-gaap", "NetIncomeLoss")
+
+
+def test_pretax_components():
+    assert get_xbrl_concepts("pretax_income_domestic")[0] == (
+        "us-gaap", "IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic",
+    )
+    assert get_xbrl_concepts("pretax_income_foreign")[0] == (
+        "us-gaap", "IncomeLossFromContinuingOperationsBeforeIncomeTaxesForeign",
+    )
+
+
+def test_bridge_metrics():
+    assert get_xbrl_concepts("equity_method_earnings")[0] == (
+        "us-gaap", "IncomeLossFromEquityMethodInvestments",
+    )
+    disc = get_xbrl_concepts("discontinued_operations")
+    assert disc[0] == ("us-gaap", "IncomeLossFromDiscontinuedOperationsNetOfTax")
+    assert ("us-gaap", "IncomeLossFromDiscontinuedOperationsNetOfTaxAttributableToReportingEntity") in disc
 
 
 def test_metadata():
     for metric in FULL_IS_METRICS:
-        assert "10-K" in get_xbrl_forms(metric)
-        assert get_duration_bounds(metric) == (330, 370)
+        assert "10-K" in get_xbrl_forms(metric), metric
+        assert get_duration_bounds(metric) == (330, 370), metric
 
 
 def test_sec_unit_keys():
-    """Unit keys must match SEC CompanyFacts exactly, or facts are filtered out."""
     assert get_xbrl_units("revenue") == ["USD"]
+    assert get_xbrl_units("pretax_income_domestic") == ["USD"]
+    assert get_xbrl_units("equity_method_earnings") == ["USD"]
+    assert get_xbrl_units("discontinued_operations") == ["USD"]
     assert get_xbrl_units("eps_basic") == ["USD/shares"]
     assert get_xbrl_units("eps_diluted") == ["USD/shares"]
     assert get_xbrl_units("shares_basic") == ["shares"]
@@ -56,6 +82,8 @@ def test_sec_unit_keys():
 if __name__ == "__main__":
     test_top_half_keys_exist()
     test_bottom_half_still_correct()
+    test_pretax_components()
+    test_bridge_metrics()
     test_metadata()
     test_sec_unit_keys()
     print("NorthStar SEC XBRL key tests: PASS")
