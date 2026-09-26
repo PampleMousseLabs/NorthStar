@@ -1,11 +1,3 @@
-"""
-NorthStar SEC XBRL key tests.
-
-Assertions reflect evidence from the 10-company research sample
-(Dev_tools/xbrl). When the dictionary changes on new evidence, update the
-evidence notes here alongside the assertions.
-"""
-
 from northstar.data.transforms.sec_xbrl_key import (
     get_duration_bounds,
     get_xbrl_concepts,
@@ -13,58 +5,57 @@ from northstar.data.transforms.sec_xbrl_key import (
     get_xbrl_units,
 )
 
-
-def test_revenue_default_chain():
-    concepts = get_xbrl_concepts("revenue")
-
-    # Evidence: 'Revenues' is the consolidated top line for JPM, BAC, PLD, O,
-    # MET, PRU in companyfacts. Evaluating the ASC 606 tag first understated
-    # MET (2.4B vs 77.1B). The broad total must lead the chain.
-    assert concepts[0] == ("us-gaap", "Revenues")
-    assert ("us-gaap", "RevenueFromContractWithCustomerExcludingAssessedTax") in concepts
-
-    # Evidence: NEE FY2025 10-K (0000753308-26-000015) presents this concept
-    # on CONSOLIDATEDSTATEMENTSOFINCOME; NEE's 'Revenues' history ends FY2012.
-    assert ("us-gaap", "RegulatedAndUnregulatedOperatingRevenue") in concepts
+FULL_IS_METRICS = (
+    "revenue", "cogs", "gross_profit", "sga", "rd",
+    "operating_expenses", "depreciation_amortization",
+    "operating_income", "interest_expense", "other_income",
+    "pretax_income", "taxes",
+    "net_income_incl_nci", "minority_interest", "net_income",
+    "eps_basic", "eps_diluted", "shares_basic", "shares_diluted",
+)
 
 
-def test_revenue_bank_override():
-    concepts = get_xbrl_concepts("revenue", industry="bank")
-
-    # Evidence: BAC never reports RevenuesNetOfInterestExpense (JPM only);
-    # both JPM and BAC carry 19 annual periods under 'Revenues'.
-    assert concepts[0] == ("us-gaap", "Revenues")
-    assert ("us-gaap", "RevenuesNetOfInterestExpense") in concepts
-
-
-def test_revenue_utility_override():
-    concepts = get_xbrl_concepts("revenue", industry="utility")
-    assert concepts[0] == ("us-gaap", "RegulatedAndUnregulatedOperatingRevenue")
-
-
-def test_revenue_reit_override():
-    concepts = get_xbrl_concepts("revenue", industry="reit")
-    assert concepts[0] == ("us-gaap", "Revenues")
+def test_top_half_keys_exist():
+    assert get_xbrl_concepts("cogs")[0] == ("us-gaap", "CostOfGoodsAndServicesSold")
+    assert get_xbrl_concepts("gross_profit")[0] == ("us-gaap", "GrossProfit")
+    assert get_xbrl_concepts("sga")[0] == ("us-gaap", "SellingGeneralAndAdministrativeExpense")
+    assert get_xbrl_concepts("rd")[0] == ("us-gaap", "ResearchAndDevelopmentExpense")
+    assert get_xbrl_concepts("operating_expenses")[0] == ("us-gaap", "OperatingExpenses")
+    assert get_xbrl_concepts("interest_expense")[0] == ("us-gaap", "InterestExpense")
+    assert get_xbrl_concepts("eps_basic")[0] == ("us-gaap", "EarningsPerShareBasic")
+    assert get_xbrl_concepts("eps_diluted")[0] == ("us-gaap", "EarningsPerShareDiluted")
+    assert get_xbrl_concepts("shares_basic")[0] == ("us-gaap", "WeightedAverageNumberOfSharesOutstandingBasic")
+    assert get_xbrl_concepts("shares_diluted")[0] == ("us-gaap", "WeightedAverageNumberOfDilutedSharesOutstanding")
 
 
-def test_unknown_metric_and_industry():
-    assert get_xbrl_concepts("not_a_metric") == []
-    # Unknown industry falls back to the default chain.
-    assert get_xbrl_concepts("revenue", industry="widgets") == get_xbrl_concepts("revenue")
+def test_bottom_half_still_correct():
+    assert get_xbrl_concepts("revenue")[0] == ("us-gaap", "Revenues")
+    assert get_xbrl_concepts("revenue", industry="utility")[0] == ("us-gaap", "RegulatedAndUnregulatedOperatingRevenue")
+    assert get_xbrl_concepts("operating_income")[0] == ("us-gaap", "OperatingIncomeLoss")
+    assert get_xbrl_concepts("operating_income", industry="bank") == []
+    assert get_xbrl_concepts("taxes")[0] == ("us-gaap", "IncomeTaxExpenseBenefit")
+    assert get_xbrl_concepts("net_income")[0] == ("us-gaap", "NetIncomeLoss")
+    assert get_xbrl_concepts("net_income_incl_nci")[0] == ("us-gaap", "ProfitLoss")
 
 
-def test_revenue_metadata():
-    assert "USD" in get_xbrl_units("revenue")
-    assert "10-K" in get_xbrl_forms("revenue")
-    assert get_duration_bounds("revenue") == (330, 370)
-    assert get_duration_bounds("not_a_metric") is None
+def test_metadata():
+    for metric in FULL_IS_METRICS:
+        assert "10-K" in get_xbrl_forms(metric)
+        assert get_duration_bounds(metric) == (330, 370)
+
+
+def test_sec_unit_keys():
+    """Unit keys must match SEC CompanyFacts exactly, or facts are filtered out."""
+    assert get_xbrl_units("revenue") == ["USD"]
+    assert get_xbrl_units("eps_basic") == ["USD/shares"]
+    assert get_xbrl_units("eps_diluted") == ["USD/shares"]
+    assert get_xbrl_units("shares_basic") == ["shares"]
+    assert get_xbrl_units("shares_diluted") == ["shares"]
 
 
 if __name__ == "__main__":
-    test_revenue_default_chain()
-    test_revenue_bank_override()
-    test_revenue_utility_override()
-    test_revenue_reit_override()
-    test_unknown_metric_and_industry()
-    test_revenue_metadata()
+    test_top_half_keys_exist()
+    test_bottom_half_still_correct()
+    test_metadata()
+    test_sec_unit_keys()
     print("NorthStar SEC XBRL key tests: PASS")

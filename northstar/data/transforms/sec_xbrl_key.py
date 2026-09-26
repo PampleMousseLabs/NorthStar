@@ -1,34 +1,49 @@
 """
 NorthStar SEC XBRL concept mapping.
 
-Purpose:
-    Map NorthStar canonical metrics to candidate SEC XBRL concepts.
+Income statement backbone, top to bottom.
+Evidence: 10-company CompanyFacts harvest + presentation roles + filing checks
+(XOM 0000034088-26-000045, JPM 0001628280-26-008131, BAC 0000070858-26-000157,
+PRU 0001137774-26-000048).
 
-Important:
-    This is a research-stage mapping backed by empirical presentation linkbase
-    evidence across a 10-company sample (AAPL, MSFT, JPM, BAC, PLD, O, XOM, NEE, MET, PRU).
+All income statement metrics, including EPS and weighted-average shares, are
+DURATION facts and use the 330-370 day annual filter.
+
+SEC CompanyFacts unit keys:
+    monetary amounts   -> "USD"
+    per-share amounts  -> "USD/shares"
+    share counts       -> "shares"
 """
 
 from typing import Dict, List, Tuple
 
-# Concept tuple = (taxonomy, tag)
 Concept = Tuple[str, str]
 
-# ------------------------------------------------------------------
-# Core concept candidates
-# Ordered by preference based on statement-role frequency analysis.
-# ------------------------------------------------------------------
+ANNUAL_FORMS = ["10-K", "10-K/A", "20-F", "20-F/A"]
+
+
+def _annual(concepts, units, industry_overrides=None) -> dict:
+    return {
+        "default_concepts": concepts,
+        "industry_overrides": industry_overrides or {},
+        "units": units,
+        "forms": ANNUAL_FORMS,
+        "duration_days_min": 330,
+        "duration_days_max": 370,
+    }
+
 
 _EXPLICIT_XBRL_ALIASES: Dict[str, dict] = {
-    "revenue": {
-        "default_concepts": [
+    "revenue": _annual(
+        [
             ("us-gaap", "Revenues"),
             ("us-gaap", "RevenueFromContractWithCustomerExcludingAssessedTax"),
             ("us-gaap", "RegulatedAndUnregulatedOperatingRevenue"),
             ("us-gaap", "SalesRevenueNet"),
             ("us-gaap", "OperatingRevenues"),
         ],
-        "industry_overrides": {
+        ["USD"],
+        {
             "bank": [
                 ("us-gaap", "Revenues"),
                 ("us-gaap", "RevenuesNetOfInterestExpense"),
@@ -45,45 +60,116 @@ _EXPLICIT_XBRL_ALIASES: Dict[str, dict] = {
                 ("us-gaap", "Revenues"),
             ],
         },
-        "units": ["USD"],
-        "forms": ["10-K", "10-K/A", "20-F", "20-F/A"],
-        "duration_days_min": 330,
-        "duration_days_max": 370,
-    },
+    ),
+    "cogs": _annual(
+        [
+            ("us-gaap", "CostOfGoodsAndServicesSold"),
+            ("us-gaap", "CostOfRevenue"),
+            ("us-gaap", "CostOfGoodsSold"),
+            ("us-gaap", "CostOfServices"),
+        ],
+        ["USD"],
+    ),
+    "gross_profit": _annual([("us-gaap", "GrossProfit")], ["USD"]),
+    "sga": _annual([("us-gaap", "SellingGeneralAndAdministrativeExpense")], ["USD"]),
+    "rd": _annual([("us-gaap", "ResearchAndDevelopmentExpense")], ["USD"]),
+    "operating_expenses": _annual([("us-gaap", "OperatingExpenses")], ["USD"]),
+    "depreciation_amortization": _annual(
+        [
+            ("us-gaap", "DepreciationDepletionAndAmortization"),
+            ("us-gaap", "DepreciationAndAmortization"),
+            ("us-gaap", "AmortizationOfIntangibleAssets"),
+        ],
+        ["USD"],
+    ),
+    "operating_income": _annual(
+        [("us-gaap", "OperatingIncomeLoss")],
+        ["USD"],
+        {"bank": []},
+    ),
+    "interest_expense": _annual(
+        [
+            ("us-gaap", "InterestExpense"),
+            ("us-gaap", "InterestExpenseDebt"),
+        ],
+        ["USD"],
+    ),
+    "other_income": _annual(
+        [
+            ("us-gaap", "OtherNonoperatingIncomeExpense"),
+            ("us-gaap", "NonoperatingIncomeExpense"),
+        ],
+        ["USD"],
+    ),
+    "pretax_income": _annual(
+        [
+            ("us-gaap", "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest"),
+            ("us-gaap", "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments"),
+        ],
+        ["USD"],
+    ),
+    "taxes": _annual([("us-gaap", "IncomeTaxExpenseBenefit")], ["USD"]),
+    "net_income_incl_nci": _annual(
+        # Evidence: XOM FY2025 41,268 - 11,504 = 29,764
+        [
+            ("us-gaap", "ProfitLoss"),
+            ("us-gaap", "NetIncomeLoss"),
+        ],
+        ["USD"],
+    ),
+    "minority_interest": _annual(
+        # Evidence: XOM FY2025 = 920. Can be negative (NEE tax equity).
+        [
+            ("us-gaap", "NetIncomeLossAttributableToNoncontrollingInterest"),
+            ("us-gaap", "NetIncomeLossAttributableToNonredeemableNoncontrollingInterest"),
+            ("us-gaap", "NetIncomeLossAttributableToRedeemableNoncontrollingInterest"),
+            ("us-gaap", "MinorityInterestInNetIncomeLossOperatingPartnerships"),
+        ],
+        ["USD"],
+    ),
+    "net_income": _annual(
+        [
+            ("us-gaap", "NetIncomeLoss"),
+            ("us-gaap", "ProfitLoss"),
+        ],
+        ["USD"],
+    ),
+    "eps_basic": _annual([("us-gaap", "EarningsPerShareBasic")], ["USD/shares"]),
+    "eps_diluted": _annual([("us-gaap", "EarningsPerShareDiluted")], ["USD/shares"]),
+    "shares_basic": _annual(
+        [("us-gaap", "WeightedAverageNumberOfSharesOutstandingBasic")],
+        ["shares"],
+    ),
+    "shares_diluted": _annual(
+        [("us-gaap", "WeightedAverageNumberOfDilutedSharesOutstanding")],
+        ["shares"],
+    ),
 }
 
 
 def get_xbrl_concepts(metric: str, industry: str | None = None) -> List[Concept]:
-    """
-    Return preferred SEC XBRL concept candidates for a canonical NorthStar metric.
-    """
     metric_def = _EXPLICIT_XBRL_ALIASES.get(metric)
     if not metric_def:
         return []
-
     if industry:
         industry_concepts = metric_def.get("industry_overrides", {}).get(industry.lower())
-        if industry_concepts:
+        if industry_concepts is not None:
             return industry_concepts
-
     return metric_def.get("default_concepts", [])
 
 
 def get_xbrl_units(metric: str) -> List[str]:
-    metric_def = _EXPLICIT_XBRL_ALIASES.get(metric, {})
-    return metric_def.get("units", [])
+    return _EXPLICIT_XBRL_ALIASES.get(metric, {}).get("units", [])
 
 
 def get_xbrl_forms(metric: str) -> List[str]:
-    metric_def = _EXPLICIT_XBRL_ALIASES.get(metric, {})
-    return metric_def.get("forms", [])
+    return _EXPLICIT_XBRL_ALIASES.get(metric, {}).get("forms", [])
 
 
 def get_duration_bounds(metric: str) -> tuple[int, int] | None:
     metric_def = _EXPLICIT_XBRL_ALIASES.get(metric, {})
-    if "duration_days_min" in metric_def and "duration_days_max" in metric_def:
-        return (
-            metric_def["duration_days_min"],
-            metric_def["duration_days_max"],
-        )
+    minimum = metric_def.get("duration_days_min")
+    maximum = metric_def.get("duration_days_max")
+    if minimum is not None and maximum is not None:
+        return (minimum, maximum)
     return None
