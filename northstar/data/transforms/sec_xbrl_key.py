@@ -161,10 +161,14 @@ _EXPLICIT_XBRL_ALIASES: Dict[str, dict] = {
         ["USD"],
     ),
     "net_income": _annual(
-        [
-            ("us-gaap", "NetIncomeLoss"),
-            ("us-gaap", "ProfitLoss"),
-        ],
+        # Parent income only. ProfitLoss includes NCI and is not equivalent.
+        [("us-gaap", "NetIncomeLoss")],
+        ["USD"],
+    ),
+    "net_income_to_common": _annual(
+        # Comparison only: common-shareholder income can differ from parent
+        # income because of preferred dividends and other allocations.
+        [("us-gaap", "NetIncomeLossAvailableToCommonStockholdersBasic")],
         ["USD"],
     ),
     "eps_basic": _annual([("us-gaap", "EarningsPerShareBasic")], ["USD/shares"]),

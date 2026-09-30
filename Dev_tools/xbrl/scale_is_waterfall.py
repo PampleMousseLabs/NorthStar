@@ -16,6 +16,7 @@ Scoring rules (evidence from 100-company runs):
 import argparse
 import csv
 import json
+import math
 import time
 from collections import Counter
 from itertools import combinations
@@ -34,7 +35,7 @@ METRICS = [
     "operating_income", "interest_expense", "other_income",
     "pretax_income", "pretax_income_domestic", "pretax_income_foreign", "taxes",
     "equity_method_earnings", "discontinued_operations",
-    "net_income_incl_nci", "minority_interest", "net_income",
+    "net_income_incl_nci", "minority_interest", "net_income", "net_income_to_common",
     "eps_basic", "eps_diluted", "shares_basic", "shares_diluted",
 ]
 BRIDGE_METRICS = ("equity_method_earnings", "discontinued_operations")
@@ -47,7 +48,10 @@ SUMMARY_FIELDS = [
     "pretax_income_domestic", "pretax_income_foreign", "taxes",
     "equity_method_earnings", "discontinued_operations", "step1_bridge",
     "net_income_incl_nci", "minority_interest_tagged", "minority_interest_implied",
-    "net_income", "step1_pretax_minus_tax", "step2_nci", "overall",
+    "net_income", "net_income_source", "net_income_note",
+    "net_income_to_common", "parent_minus_common", "common_context_check",
+    "net_income_accession", "net_income_filing_url",
+    "step1_pretax_minus_tax", "step2_nci", "overall",
     "revenue_tag", "cogs_tag", "gross_tag", "opinc_tag", "pretax_tag",
     "tax_tag", "incl_nci_tag", "ni_tag",
 ]
@@ -128,6 +132,96 @@ def step1_check(pretax, taxes, incl, bridges: dict) -> tuple[str, str]:
     return "FAIL", ""
 
 
+
+def resolve_parent_net_income(reported, total, nci, common):
+    """
+    Research-only parent-income resolution.
+
+    Prefer directly tagged NetIncomeLoss.
+    Otherwise derive ProfitLoss minus TOTAL NCI only when both records have
+    matching annual periods, USD units, and filing accession numbers.
+
+    Filing evidence:
+        CF FY2025, accession 0001324404-26-000007:
+        1,798M consolidated earnings - 343M NCI = 1,455M to common.
+
+    Derived values are not independent reconciliation evidence.
+    """
+    if reported is not None:
+        number = val(reported)
+        if (
+            reported.get("taxonomy") == "us-gaap"
+            and reported.get("tag") == "NetIncomeLoss"
+            and number is not None
+            and math.isfinite(number)
+        ):
+            return number, "tagged", ""
+        return None, "missing", "Invalid directly reported parent-income fact"
+
+    if total is not None:
+        if (
+            total.get("taxonomy") == "us-gaap"
+            and total.get("tag") == "ProfitLoss"
+        ):
+            total_value = val(total)
+
+            if nci is not None:
+                if (
+                    nci.get("taxonomy") != "us-gaap"
+                    or nci.get("tag") != "NetIncomeLossAttributableToNoncontrollingInterest"
+                ):
+                    return None, "missing", "NCI candidate is not the total-NCI concept"
+
+                if total.get("unit") != "USD" or nci.get("unit") != "USD":
+                    return None, "missing", "Units do not match the required USD basis"
+
+                for field in ("start", "end", "accn"):
+                    if not total.get(field) or total.get(field) != nci.get(field):
+                        return None, "missing", f"Total income and NCI differ on {field}"
+
+                nci_value = val(nci)
+
+                if (
+                    total_value is None
+                    or nci_value is None
+                    or not math.isfinite(total_value)
+                    or not math.isfinite(nci_value)
+                ):
+                    return None, "missing", "Non-numeric or non-finite income/NCI value"
+
+                return (
+                    total_value - nci_value,
+                    "derived_incl_nci_minus_nci",
+                    "ProfitLoss minus total NCI; matching period, unit and accession",
+                )
+
+            # No tagged NCI: allow common-shareholder income if present
+            if common is not None:
+                common_value = val(common)
+                if (
+                    common.get("taxonomy") == "us-gaap"
+                    and common.get("tag") == "NetIncomeLossAvailableToCommonStockholdersBasic"
+                    and common.get("unit") == "USD"
+                    and common_value is not None
+                    and math.isfinite(common_value)
+                ):
+                    return (
+                        common_value,
+                        "fallback_common_stockholders_basic",
+                        "No NetIncomeLoss/NCI; used common-stockholder income",
+                    )
+
+            # No NCI and no common fallback: use ProfitLoss explicitly as total-only fallback.
+            if total_value is not None and math.isfinite(total_value):
+                return (
+                    total_value,
+                    "fallback_profitloss_no_nci_tag",
+                    "No NetIncomeLoss, no NCI and no common-income tag; used ProfitLoss",
+                )
+
+    return None, "missing", "No valid parent-income fact or fallback"
+
+
 def step2_check(incl, ni, tagged_nci) -> tuple[str, float | None]:
     if incl is None or ni is None:
         return "N/A", None
@@ -195,6 +289,50 @@ def main() -> None:
                 val(data["minority_interest"]),
                 val(data["net_income"]),
             )
+            ni_common = val(data["net_income_to_common"])
+            ni, ni_source, ni_note = resolve_parent_net_income(
+                data["net_income"],
+                data["net_income_incl_nci"],
+                data["minority_interest"],
+                data["net_income_to_common"],
+            )
+            parent_minus_common = (
+                ni - ni_common
+                if ni is not None and ni_common is not None
+                else None
+            )
+
+            ni_basis = (
+                data["net_income"]
+                if ni_source == "tagged"
+                else data["net_income_incl_nci"]
+                if ni_source.startswith("derived")
+                else None
+            )
+            common_record = data["net_income_to_common"]
+            common_context_check = "NO_COMPARISON"
+
+            if ni_basis is not None and common_record is not None:
+                same_context = all(
+                    ni_basis.get(field)
+                    and ni_basis.get(field) == common_record.get(field)
+                    for field in ("start", "end", "accn", "unit")
+                )
+                common_context_check = (
+                    "SAME_PERIOD_FILING_UNIT"
+                    if same_context
+                    else "CONTEXT_DIFFERENCE_REVIEW"
+                )
+
+            ni_accession = (ni_basis or {}).get("accn", "")
+            cik_text = str(payload.get("cik", ""))
+            ni_filing_url = ""
+            if ni_accession and cik_text.isdigit():
+                ni_filing_url = (
+                    "https://www.sec.gov/Archives/edgar/data/"
+                    f"{int(cik_text)}/{ni_accession.replace('-', '')}/"
+                    f"{ni_accession}-index.htm"
+                )
             bridges = {name: val(data[name]) for name in BRIDGE_METRICS}
 
             g_chk = gross_check(rev, cogs, gross)
@@ -202,6 +340,9 @@ def main() -> None:
             if step1 == "OK":
                 bridge_counter[bridge_used] += 1
             step2, implied_nci = step2_check(incl, ni, tagged_nci)
+            if ni_source.startswith("derived"):
+                # The equation used to derive NI cannot independently validate it.
+                step2 = "DERIVED_NOT_INDEPENDENT"
 
             if stale:
                 overall = "STALE"
@@ -231,6 +372,13 @@ def main() -> None:
                 "minority_interest_tagged": blank(tagged_nci),
                 "minority_interest_implied": blank(implied_nci),
                 "net_income": blank(ni),
+                "net_income_source": ni_source,
+                "net_income_note": ni_note,
+                "net_income_to_common": blank(ni_common),
+                "parent_minus_common": blank(parent_minus_common),
+                "common_context_check": common_context_check,
+                "net_income_accession": ni_accession,
+                "net_income_filing_url": ni_filing_url,
                 "step1_pretax_minus_tax": step1,
                 "step2_nci": step2,
                 "overall": overall,
