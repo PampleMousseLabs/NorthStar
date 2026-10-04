@@ -171,6 +171,52 @@ _EXPLICIT_XBRL_ALIASES: Dict[str, dict] = {
         [("us-gaap", "NetIncomeLossAvailableToCommonStockholdersBasic")],
         ["USD"],
     ),
+
+    "comprehensive_income": _annual(
+        # Below net income. 98/100 face-of-IS presentation harvest.
+        [("us-gaap", "ComprehensiveIncomeNetOfTax")],
+        ["USD"],
+    ),
+    "goodwill_impairment": _annual(
+        # 75/100 face-of-IS.
+        [("us-gaap", "GoodwillImpairmentLoss")],
+        ["USD"],
+    ),
+    "restructuring_charges": _annual(
+        # 64/100 face-of-IS.
+        [("us-gaap", "RestructuringCharges")],
+        ["USD"],
+    ),
+    "debt_extinguishment": _annual(
+        # 56/100 face-of-IS.
+        [("us-gaap", "GainsLossesOnExtinguishmentOfDebt")],
+        ["USD"],
+    ),
+    "asset_impairment": _annual(
+        # 52/100 face-of-IS. Broader than goodwill.
+        [("us-gaap", "AssetImpairmentCharges")],
+        ["USD"],
+    ),
+    "income_from_continuing_ops": _annual(
+        # 52/100 face-of-IS. Net of tax, before discontinued ops.
+        [("us-gaap", "IncomeLossFromContinuingOperations")],
+        ["USD"],
+    ),
+    "costs_and_expenses": _annual(
+        # 44/100 face-of-IS total cost subtotal (utilities/energy often).
+        [("us-gaap", "CostsAndExpenses")],
+        ["USD"],
+    ),
+    "ga_expense": _annual(
+        # 30/100. Distinct from combined SG&A.
+        [("us-gaap", "GeneralAndAdministrativeExpense")],
+        ["USD"],
+    ),
+    "preferred_dividends": _annual(
+        # 21/100. Explains parent NI vs NI to common.
+        [("us-gaap", "PreferredStockDividendsIncomeStatementImpact")],
+        ["USD"],
+    ),
     "eps_basic": _annual([("us-gaap", "EarningsPerShareBasic")], ["USD/shares"]),
     "eps_diluted": _annual([("us-gaap", "EarningsPerShareDiluted")], ["USD/shares"]),
     "shares_basic": _annual(

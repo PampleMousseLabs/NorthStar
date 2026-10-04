@@ -8,6 +8,7 @@ Outputs (Dev_tools/xbrl/runlogs/, gitignored):
 """
 
 from collections import defaultdict
+import argparse
 import csv
 import os
 import time
@@ -62,12 +63,13 @@ def make_session(user_agent: str) -> requests.Session:
     return session
 
 
-def load_tickers() -> list[str]:
-    return [
+def load_tickers(path: Path = TICKERS_FILE, limit: int | None = None) -> list[str]:
+    tickers = [
         line.strip().upper()
-        for line in TICKERS_FILE.read_text().splitlines()
+        for line in path.read_text().splitlines()
         if line.strip()
     ]
+    return tickers[:limit] if limit else tickers
 
 
 def filing_base_url(cik: str, accession: str) -> str:
@@ -327,6 +329,11 @@ def write_status(rows: list[dict], path: Path) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--file", default=str(TICKERS_FILE))
+    parser.add_argument("--limit", type=int, default=None)
+    args = parser.parse_args()
+
     user_agent = get_user_agent()
     session = make_session(user_agent)
     client = SECEdgarClient(user_agent=user_agent)
@@ -335,7 +342,8 @@ def main() -> None:
 
     all_rows = []
     status_rows = []
-    tickers = load_tickers()
+    tickers = load_tickers(Path(args.file), args.limit)
+    print(f"Loaded {len(tickers)} tickers from {args.file}")
 
     for index, ticker in enumerate(tickers, start=1):
         print(f"[{index}/{len(tickers)}] {ticker}")
