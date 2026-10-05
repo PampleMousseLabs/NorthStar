@@ -9,8 +9,10 @@ submissions, or a platform company model) replaces it later.
 """
 
 INDUSTRY_BY_TICKER = {
-    **{t: "bank" for t in ("JPM", "BAC", "SCHW", "COF", "CBOE")},
-    **{t: "reit" for t in ("ARE", "BXP", "CPT", "AMT", "PLD", "O", "CBRE")},
+    # CBOE is an exchange operator, not a bank. Removed.
+    **{t: "bank" for t in ("JPM", "BAC", "SCHW", "COF")},
+    # CBRE is a services firm, not a REIT. Removed.
+    **{t: "reit" for t in ("ARE", "BXP", "CPT", "AMT", "PLD", "O")},
     **{t: "utility" for t in ("AWK", "AEE", "AEP", "LNT", "ATO", "CNP")},
 }
 

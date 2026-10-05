@@ -60,10 +60,10 @@ _EXPLICIT_XBRL_ALIASES: Dict[str, dict] = {
                 ("us-gaap", "OperatingLeasesIncomeStatementLeaseRevenue"),
             ],
             "utility": [
-                ("us-gaap", "RegulatedAndUnregulatedOperatingRevenue"),
+                # Evidence: LNT FY2025 consolidated revenue is Revenues (4,362M).
+                # NEE has no current Revenues fact and falls through to Regulated.
                 ("us-gaap", "Revenues"),
-                # Evidence: AWK FY2025 top line (5,140M)
-                ("us-gaap", "OperatingRevenues"),
+                ("us-gaap", "RegulatedAndUnregulatedOperatingRevenue"),
             ],
         },
     ),
@@ -111,6 +111,7 @@ _EXPLICIT_XBRL_ALIASES: Dict[str, dict] = {
     "pretax_income": _annual(
         [
             ("us-gaap", "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest"),
+            # Evidence: BNY, BR, CPT, CVNA, CASY FY2025 report only this shorter concept
             ("us-gaap", "IncomeLossFromContinuingOperationsBeforeIncomeTaxes"),
             ("us-gaap", "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments"),
         ],
@@ -166,7 +167,8 @@ _EXPLICIT_XBRL_ALIASES: Dict[str, dict] = {
         ["USD"],
     ),
     "net_income": _annual(
-        # Parent income only. ProfitLoss includes NCI and is not equivalent.
+        # Parent net income only.
+        # ProfitLoss includes NCI and must not be used as a direct fallback.
         [("us-gaap", "NetIncomeLoss")],
         ["USD"],
     ),
@@ -176,7 +178,6 @@ _EXPLICIT_XBRL_ALIASES: Dict[str, dict] = {
         [("us-gaap", "NetIncomeLossAvailableToCommonStockholdersBasic")],
         ["USD"],
     ),
-
     "comprehensive_income": _annual(
         # Below net income. 98/100 face-of-IS presentation harvest.
         [("us-gaap", "ComprehensiveIncomeNetOfTax")],
