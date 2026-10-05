@@ -27,7 +27,7 @@ TOL = 2_000_000.0  # $2M tolerance for rounding / minor line items
 
 METRICS = [
     "revenue", "cogs", "gross_profit", "sga", "ga_expense", "rd",
-    "operating_expenses", "costs_and_expenses",
+    "operating_expenses", "operating_costs_and_expenses", "costs_and_expenses",
     "depreciation_amortization", "goodwill_impairment",
     "restructuring_charges", "asset_impairment",
     "equity_method_earnings", "operating_income"
@@ -61,7 +61,9 @@ def evaluate_top_half(v: dict) -> tuple[str, str, float | None]:
     gp = v["gross_profit"]
     cogs = v["cogs"]
     opex = v["operating_expenses"]
+    operating_costs = v["operating_costs_and_expenses"]
     costs = v["costs_and_expenses"]
+    da = v["depreciation_amortization"]
     sga = v["sga"] or v["ga_expense"]
     rd = v["rd"]
     gw = v["goodwill_impairment"] or 0.0
@@ -84,6 +86,26 @@ def evaluate_top_half(v: dict) -> tuple[str, str, float | None]:
         return "RECONCILES", "ARCH_1_OPERATING_EXPENSES", abs((rev - opex) - op)
     if gross_anchor is not None and opex is not None and abs((gross_anchor - opex) - op) <= TOL:
         return "RECONCILES", "ARCH_1_GROSS_MINUS_OPEX", abs((gross_anchor - opex) - op)
+
+    # -------------------------------------------------------------
+    # Archetype 1B: Service / Cruise Operating Cost Stack
+    #
+    # Revenue - OperatingCostsAndExpenses - SG&A - D&A = Operating Income
+    # Example: CCL FY2025.
+    # -------------------------------------------------------------
+    if (
+        rev is not None
+        and operating_costs is not None
+        and sga is not None
+        and da is not None
+    ):
+        calc_op = rev - operating_costs - sga - da
+        if abs(calc_op - op) <= TOL:
+            return (
+                "RECONCILES",
+                "ARCH_1B_OPERATING_COSTS_SGA_DA",
+                abs(calc_op - op),
+            )
 
     # -------------------------------------------------------------
     # Archetype 2: Commercial / Distribution (Gross - SG&A)
@@ -185,6 +207,7 @@ def main() -> None:
             "gross_profit": v["gross_profit"] or "",
             "sga": v["sga"] or "",
             "rd": v["rd"] or "",
+            "operating_costs_and_expenses": v["operating_costs_and_expenses"] or "",
             "operating_income": v["operating_income"] or "",
             "status": status,
             "archetype": archetype,

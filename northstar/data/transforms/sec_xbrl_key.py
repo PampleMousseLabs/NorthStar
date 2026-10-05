@@ -80,6 +80,14 @@ _EXPLICIT_XBRL_ALIASES: Dict[str, dict] = {
     "sga": _annual([("us-gaap", "SellingGeneralAndAdministrativeExpense")], ["USD"]),
     "rd": _annual([("us-gaap", "ResearchAndDevelopmentExpense")], ["USD"]),
     "operating_expenses": _annual([("us-gaap", "OperatingExpenses")], ["USD"]),
+    "operating_costs_and_expenses": _annual(
+        # Distinct subtotal from OperatingExpenses / CostsAndExpenses.
+        # Evidence: CCL FY2025:
+        # Revenue 26,622 - OperatingCostsAndExpenses 15,947
+        # - SG&A 3,402 - D&A 2,790 = OperatingIncome 4,483.
+        [("us-gaap", "OperatingCostsAndExpenses")],
+        ["USD"],
+    ),
     "depreciation_amortization": _annual(
         [
             ("us-gaap", "DepreciationDepletionAndAmortization"),
