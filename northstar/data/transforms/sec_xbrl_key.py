@@ -54,12 +54,16 @@ _EXPLICIT_XBRL_ALIASES: Dict[str, dict] = {
             ],
             "reit": [
                 ("us-gaap", "Revenues"),
+                # Evidence: CPT FY2025 revenue top line is property revenues (1,573.5M)
+                ("us-gaap", "OperatingLeaseLeaseIncome"),
                 ("us-gaap", "RealEstateRevenueNet"),
                 ("us-gaap", "OperatingLeasesIncomeStatementLeaseRevenue"),
             ],
             "utility": [
                 ("us-gaap", "RegulatedAndUnregulatedOperatingRevenue"),
                 ("us-gaap", "Revenues"),
+                # Evidence: AWK FY2025 top line (5,140M)
+                ("us-gaap", "OperatingRevenues"),
             ],
         },
     ),
@@ -92,6 +96,7 @@ _EXPLICIT_XBRL_ALIASES: Dict[str, dict] = {
     "interest_expense": _annual(
         [
             ("us-gaap", "InterestExpense"),
+            ("us-gaap", "InterestExpenseNonoperating"),
             ("us-gaap", "InterestExpenseDebt"),
         ],
         ["USD"],

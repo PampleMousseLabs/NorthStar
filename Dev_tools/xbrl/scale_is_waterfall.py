@@ -271,8 +271,16 @@ def main() -> None:
             stale = is_stale(period_end)
 
             data = {}
+            industry = None
+            if ticker in {"JPM", "BAC", "SCHW", "COF", "CBOE"}:
+                industry = "bank"
+            elif ticker in {"ARE", "BXP", "CPT", "AMT", "PLD", "O", "CBRE"}:
+                industry = "reit"
+            elif ticker in {"AWK", "AEE", "AEP", "LNT", "ATO", "CNP"}:
+                industry = "utility"
+
             for metric in METRICS:
-                facts = select_annual_facts(payload, metric)
+                facts = select_annual_facts(payload, metric, industry=industry)
                 if period_end:
                     facts = [f for f in facts if f.get("end") == period_end]
                 data[metric] = facts[0] if facts else None
