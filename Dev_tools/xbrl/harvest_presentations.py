@@ -189,9 +189,19 @@ def classify_role(role: str) -> str:
     if "balancesheet" in name or "financialposition" in name or "financialcondition" in name:
         return "balance_sheet"
     if any(k in name for k in (
-        "statementsofincome", "statementofincome",
-        "statementsofoperations", "statementofoperations",
-        "statementsofearnings", "statementofearnings",
+        "consolidatedincomestatements",
+        "consolidatedstatementsofincome",
+        "consolidatedstatementofincome",
+        "consolidatedstatementsofoperations",
+        "consolidatedstatementofoperations",
+        "consolidatedstatementsofearnings",
+        "consolidatedstatementofearnings",
+        "statementsofincome",
+        "statementofincome",
+        "statementsofoperations",
+        "statementofoperations",
+        "statementsofearnings",
+        "statementofearnings",
     )):
         return "income_statement"
     if any(k in name for k in (
