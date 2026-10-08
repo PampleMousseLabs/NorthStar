@@ -22,6 +22,7 @@ def blank_values():
         "restructuring_charges": None,
         "asset_impairment": None,
         "equity_method_earnings": None,
+        "other_operating_income": None,
         "operating_income": None,
     }
 
@@ -43,10 +44,11 @@ class TopHalfArchetypeTests(unittest.TestCase):
             "operating_income": 4_483_000_000,
         })
 
-        status, archetype, gap = evaluate_top_half(values)
+        status, formula, gap, adjustments = evaluate_top_half(values)
 
         self.assertEqual(status, "RECONCILES")
-        self.assertEqual(archetype, "ARCH_1B_OPERATING_COSTS_SGA_DA")
+        self.assertEqual(formula, "revenue - operating_costs - sga - d&a")
+        self.assertEqual(adjustments, "")
         self.assertLessEqual(gap, 2_000_000)
 
     def test_operating_costs_are_not_full_costs(self):
@@ -58,10 +60,67 @@ class TopHalfArchetypeTests(unittest.TestCase):
             "operating_income": 4_483_000_000,
         })
 
-        status, archetype, _ = evaluate_top_half(values)
+        status, formula, gap, adjustments = evaluate_top_half(values)
 
-        self.assertNotEqual(archetype, "ARCH_1_TOTAL_COSTS")
         self.assertNotEqual(status, "RECONCILES")
+
+    def test_adjustment_bridge_closes_exact_gap(self):
+        """Tagged D&A + restructuring between gross-sga and operating income."""
+        values = blank_values()
+        values.update({
+            "revenue": 10_000_000_000,
+            "cogs": 4_000_000_000,
+            "gross_profit": 6_000_000_000,
+            "sga": 3_000_000_000,
+            "depreciation_amortization": 1_500_000_000,
+            "restructuring_charges": 500_000_000,
+            "operating_income": 1_000_000_000,
+        })
+
+        status, formula, gap, adjustments = evaluate_top_half(values)
+
+        self.assertEqual(status, "RECONCILES")
+        self.assertIn("adj(", formula)
+        self.assertEqual(adjustments, "d&a+restructuring")
+        self.assertLessEqual(gap, 2_000_000)
+
+    def test_untagged_adjustment_is_not_assumed(self):
+        """Same gap, but the adjustments are not tagged: must not reconcile."""
+        values = blank_values()
+        values.update({
+            "revenue": 10_000_000_000,
+            "cogs": 4_000_000_000,
+            "gross_profit": 6_000_000_000,
+            "sga": 3_000_000_000,
+            "operating_income": 1_000_000_000,
+        })
+
+        status, formula, gap, adjustments = evaluate_top_half(values)
+
+        self.assertEqual(status, "MISMATCH")
+        self.assertEqual(adjustments, "")
+        self.assertAlmostEqual(gap, 2_000_000_000)
+
+    def test_equity_earnings_adjustment_adds(self):
+        """Equity-method earnings are income: they add to the base."""
+        values = blank_values()
+        values.update({
+            "revenue": 10_000_000_000,
+            "cogs": 4_000_000_000,
+            "gross_profit": 6_000_000_000,
+            "sga": 3_000_000_000,
+            "equity_method_earnings": 500_000_000,
+            "operating_income": 3_500_000_000,
+        })
+
+        status, formula, gap, adjustments = evaluate_top_half(values)
+
+        self.assertEqual(status, "RECONCILES")
+        self.assertEqual(adjustments, "equity_method_earnings")
+
+    def test_no_operating_income(self):
+        status, formula, gap, adjustments = evaluate_top_half(blank_values())
+        self.assertEqual(status, "NO_OPERATING_INCOME")
 
 
 if __name__ == "__main__":

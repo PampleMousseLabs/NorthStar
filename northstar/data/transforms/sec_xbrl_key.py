@@ -197,8 +197,14 @@ _EXPLICIT_XBRL_ALIASES: Dict[str, dict] = {
         ["USD"],
     ),
     "restructuring_charges": _annual(
-        # 64/100 face-of-IS.
-        [("us-gaap", "RestructuringCharges")],
+        # 64/100 face-of-IS. Synonyms added from residual evidence:
+        # BBY FY2026 RestructuringCosts 190M, CAH FY2026 46M;
+        # APD FY2025 BusinessExitCosts1 3,623M.
+        [
+            ("us-gaap", "RestructuringCharges"),
+            ("us-gaap", "RestructuringCosts"),
+            ("us-gaap", "BusinessExitCosts1"),
+        ],
         ["USD"],
     ),
     "debt_extinguishment": _annual(
@@ -208,7 +214,20 @@ _EXPLICIT_XBRL_ALIASES: Dict[str, dict] = {
     ),
     "asset_impairment": _annual(
         # 52/100 face-of-IS. Broader than goodwill.
-        [("us-gaap", "AssetImpairmentCharges")],
+        # Synonyms: BBY FY2026 GoodwillAndIntangibleAssetImpairment 171M;
+        # ImpairmentOfIntangibleAssetsExcludingGoodwill 37/100 glossary.
+        [
+            ("us-gaap", "AssetImpairmentCharges"),
+            ("us-gaap", "GoodwillAndIntangibleAssetImpairment"),
+            ("us-gaap", "ImpairmentOfIntangibleAssetsExcludingGoodwill"),
+            ("us-gaap", "ImpairmentOfLongLivedAssetsHeldForUse"),
+        ],
+        ["USD"],
+    ),
+    "other_operating_income": _annual(
+        # 20/100 face-of-IS in glossary. Sign as reported: income positive.
+        # Evidence: CF FY2025 "other operating - net" (25M), CVNA FY2025 (-3M).
+        [("us-gaap", "OtherOperatingIncomeExpenseNet")],
         ["USD"],
     ),
     "income_from_continuing_ops": _annual(

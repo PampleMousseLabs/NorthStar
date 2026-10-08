@@ -1,11 +1,19 @@
 """
-Top-Half Operating Income Waterfall Reconciliation Engine.
+Top-half income-statement validation with adjustment bridges. Research tool.
 
-Tests reported financial figures against the 4 recognized GAAP income statement archetypes:
-    Archetype 1: Total Cost / Single Step (Revenue - Costs/Opex)
-    Archetype 2: Commercial / Distribution (Gross Profit - SG&A)
-    Archetype 3: Tech / R&D Heavy (Gross Profit - SG&A - R&D)
-    Archetype 4: Multi-Line Industrial (Gross Profit - SG&A - [R&D] - Impairments - Restructuring + Equity)
+A company RECONCILES when a formula built only from tagged standard XBRL
+metrics reproduces reported OperatingIncomeLoss within $2M.
+
+Method:
+    1. Try base formulas (total-cost, gross-profit, CCL cost-stack).
+    2. If no base closes exactly, retry each base with up to 3 tagged
+       adjustment lines (D&A, impairments, restructuring, equity earnings).
+       Mirrors the bridge approach proven for pretax -> net income.
+    3. Every adjustment used is recorded. Untagged adjustments are never
+       assumed. No company-specific concepts are used.
+
+Caveat: an exact match within $2M is strong evidence, not proof. Every match
+lists its formula and adjustments in the output CSV for review.
 
 Output:
     Dev_tools/xbrl/runlogs/top_half_archetype_summary.csv
@@ -13,6 +21,8 @@ Output:
 
 import csv
 import json
+from collections import Counter
+from itertools import combinations
 from pathlib import Path
 
 from northstar.data.sources.sec_edgar import SECEdgarClient
@@ -23,19 +33,35 @@ RUNLOGS = Path("Dev_tools/xbrl/runlogs")
 TICKERS_FILE = Path("Dev_tools/xbrl/tickers_100_usable.txt")
 OUTPUT_FILE = RUNLOGS / "top_half_archetype_summary.csv"
 
-TOL = 2_000_000.0  # $2M tolerance for rounding / minor line items
+TOL = 2_000_000.0
+MAX_ADJUSTMENTS = 4
 
 METRICS = [
     "revenue", "cogs", "gross_profit", "sga", "ga_expense", "rd",
     "operating_expenses", "operating_costs_and_expenses", "costs_and_expenses",
     "depreciation_amortization", "goodwill_impairment",
     "restructuring_charges", "asset_impairment",
-    "equity_method_earnings", "operating_income"
+    "equity_method_earnings", "other_operating_income", "operating_income",
 ]
+
+# Adjustments that may sit between a base subtotal and operating income.
+# sign is applied to the tagged XBRL value: expenses subtract, income adds.
+ADJUSTMENTS = (
+    ("depreciation_amortization", "d&a", -1.0),
+    ("goodwill_impairment", "goodwill_impairment", -1.0),
+    ("asset_impairment", "asset_impairment", -1.0),
+    ("restructuring_charges", "restructuring", -1.0),
+    ("equity_method_earnings", "equity_method_earnings", 1.0),
+    ("other_operating_income", "other_operating_net", 1.0),
+)
 
 
 def load_tickers() -> list[str]:
-    return [line.strip().upper() for line in TICKERS_FILE.read_text().splitlines() if line.strip()]
+    return [
+        line.strip().upper()
+        for line in TICKERS_FILE.read_text().splitlines()
+        if line.strip()
+    ]
 
 
 def val(record: dict | None) -> float | None:
@@ -51,105 +77,95 @@ def fmt(v: float | None) -> str:
     return "N/A" if v is None else f"{v / 1e6:,.1f}M"
 
 
-def evaluate_top_half(v: dict) -> tuple[str, str, float | None]:
+def base_formulas(v: dict) -> list[tuple[str, float]]:
     """
-    Evaluates top half numbers against the 4 operating income archetypes.
-    Returns: (status, archetype_matched, gap)
+    Ordered base formulas using only tagged standard metrics.
+    sga falls back to ga_expense (GeneralAndAdministrativeExpense).
+    First exact match wins.
+    """
+    rev = v["revenue"]
+    cogs = v["cogs"]
+    gross = v["gross_profit"]
+    opex = v["operating_expenses"]
+    op_costs = v["operating_costs_and_expenses"]
+    costs = v["costs_and_expenses"]
+    sga = v["sga"] if v["sga"] is not None else v["ga_expense"]
+    rd = v["rd"]
+    da = v["depreciation_amortization"]
+
+    gross_anchor = gross
+    if gross_anchor is None and rev is not None and cogs is not None:
+        gross_anchor = rev - cogs
+
+    bases = []
+
+    if rev is not None and costs is not None:
+        bases.append(("revenue - costs_and_expenses", rev - costs))
+    if gross_anchor is not None and opex is not None:
+        bases.append(("gross_profit - operating_expenses", gross_anchor - opex))
+    if rev is not None and opex is not None:
+        bases.append(("revenue - operating_expenses", rev - opex))
+    if rev is not None and op_costs is not None and sga is not None and da is not None:
+        # CCL evidence: 26,622 - 15,947 - 3,402 - 2,790 = 4,483 exact
+        bases.append(("revenue - operating_costs - sga - d&a", rev - op_costs - sga - da))
+    if gross_anchor is not None and sga is not None:
+        bases.append(("gross_profit - sga", gross_anchor - sga))
+    if gross_anchor is not None and sga is not None and rd is not None:
+        bases.append(("gross_profit - sga - rd", gross_anchor - sga - rd))
+    if rev is not None and cogs is not None and sga is not None:
+        bases.append(("revenue - cogs - sga", rev - cogs - sga))
+    if rev is not None and cogs is not None and sga is not None and rd is not None:
+        bases.append(("revenue - cogs - sga - rd", rev - cogs - sga - rd))
+
+    return bases
+
+
+def evaluate_top_half(v: dict) -> tuple[str, str, float | None, str]:
+    """
+    Returns (status, formula, residual, adjustments_used).
+
+    status: RECONCILES | MISMATCH | INCOMPLETE_DATA | NO_OPERATING_INCOME
     """
     op = v["operating_income"]
-    rev = v["revenue"]
-    gp = v["gross_profit"]
-    cogs = v["cogs"]
-    opex = v["operating_expenses"]
-    operating_costs = v["operating_costs_and_expenses"]
-    costs = v["costs_and_expenses"]
-    da = v["depreciation_amortization"]
-    sga = v["sga"] or v["ga_expense"]
-    rd = v["rd"]
-    gw = v["goodwill_impairment"] or 0.0
-    impair = v["asset_impairment"] or 0.0
-    restr = v["restructuring_charges"] or 0.0
-    equity = v["equity_method_earnings"] or 0.0
-
     if op is None:
-        return "NO_OPERATING_INCOME", "NONE", None
+        return "NO_OPERATING_INCOME", "NONE", None, ""
 
-    # Determine gross profit anchor (use reported GP or derive Rev - COGS)
-    gross_anchor = gp if gp is not None else (rev - cogs if rev is not None and cogs is not None else None)
+    bases = base_formulas(v)
+    if not bases:
+        return "INCOMPLETE_DATA", "NONE", None, ""
 
-    # -------------------------------------------------------------
-    # Archetype 1: Total Cost / Single Step
-    # -------------------------------------------------------------
-    if rev is not None and costs is not None and abs((rev - costs) - op) <= TOL:
-        return "RECONCILES", "ARCH_1_TOTAL_COSTS", abs((rev - costs) - op)
-    if rev is not None and opex is not None and abs((rev - opex) - op) <= TOL:
-        return "RECONCILES", "ARCH_1_OPERATING_EXPENSES", abs((rev - opex) - op)
-    if gross_anchor is not None and opex is not None and abs((gross_anchor - opex) - op) <= TOL:
-        return "RECONCILES", "ARCH_1_GROSS_MINUS_OPEX", abs((gross_anchor - opex) - op)
+    tagged_adjustments = [
+        (short, sign, v[metric])
+        for metric, short, sign in ADJUSTMENTS
+        if v[metric] is not None
+    ]
 
-    # -------------------------------------------------------------
-    # Archetype 1B: Service / Cruise Operating Cost Stack
-    #
-    # Revenue - OperatingCostsAndExpenses - SG&A - D&A = Operating Income
-    # Example: CCL FY2025.
-    # -------------------------------------------------------------
-    if (
-        rev is not None
-        and operating_costs is not None
-        and sga is not None
-        and da is not None
-    ):
-        calc_op = rev - operating_costs - sga - da
-        if abs(calc_op - op) <= TOL:
-            return (
-                "RECONCILES",
-                "ARCH_1B_OPERATING_COSTS_SGA_DA",
-                abs(calc_op - op),
-            )
+    best_name = ""
+    best_gap = None
 
-    # -------------------------------------------------------------
-    # Archetype 2: Commercial / Distribution (Gross - SG&A)
-    # -------------------------------------------------------------
-    if gross_anchor is not None and sga is not None:
-        calc_op = gross_anchor - sga
-        if abs(calc_op - op) <= TOL:
-            return "RECONCILES", "ARCH_2_COMMERCIAL_SGA_ONLY", abs(calc_op - op)
+    for base_name, base_value in bases:
+        gap = abs(base_value - op)
+        if best_gap is None or gap < best_gap:
+            best_gap = gap
+            best_name = base_name
 
-    # -------------------------------------------------------------
-    # Archetype 3: Tech / R&D Heavy (Gross - SG&A - R&D)
-    # -------------------------------------------------------------
-    if gross_anchor is not None and sga is not None and rd is not None:
-        calc_op = gross_anchor - sga - rd
-        if abs(calc_op - op) <= TOL:
-            return "RECONCILES", "ARCH_3_TECH_SGA_AND_RD", abs(calc_op - op)
+        if gap <= TOL:
+            return "RECONCILES", base_name, gap, ""
 
-    # -------------------------------------------------------------
-    # Archetype 4: Multi-Line Industrial (Gross - SG&A - [R&D] - Impairments - Restructuring +/- Equity)
-    # -------------------------------------------------------------
-    if gross_anchor is not None and sga is not None:
-        rd_deduct = rd if rd is not None else 0.0
-        # Try combinations with non-recurring operating lines
-        calc_op_multi = gross_anchor - sga - rd_deduct - gw - impair - restr
-        if abs(calc_op_multi - op) <= TOL:
-            return "RECONCILES", "ARCH_4_INDUSTRIAL_MULTI_LINE", abs(calc_op_multi - op)
-        # Try with equity earnings operating component
-        if abs((calc_op_multi + equity) - op) <= TOL:
-            return "RECONCILES", "ARCH_4_INDUSTRIAL_WITH_EQUITY", abs((calc_op_multi + equity) - op)
+        for size in range(1, min(MAX_ADJUSTMENTS, len(tagged_adjustments)) + 1):
+            for combo in combinations(tagged_adjustments, size):
+                adjustment_total = sum(sign * value for _, sign, value in combo)
+                calc = base_value + adjustment_total
+                if abs(calc - op) <= TOL:
+                    adj_names = "+".join(short for short, _, _ in combo)
+                    return (
+                        "RECONCILES",
+                        f"{base_name} | adj({adj_names})",
+                        abs(calc - op),
+                        adj_names,
+                    )
 
-    # If no exact match, compute best nearest gap
-    candidates = []
-    if rev is not None and costs is not None:
-        candidates.append(("Total Costs", abs((rev - costs) - op)))
-    if gross_anchor is not None and sga is not None:
-        candidates.append(("Gross - SG&A", abs((gross_anchor - sga) - op)))
-        if rd is not None:
-            candidates.append(("Gross - SG&A - R&D", abs((gross_anchor - sga - rd) - op)))
-
-    if candidates:
-        candidates.sort(key=lambda x: x[1])
-        return "MISMATCH", candidates[0][0], candidates[0][1]
-
-    return "INCOMPLETE_DATA", "NONE", None
+    return "MISMATCH", best_name, best_gap, ""
 
 
 def main() -> None:
@@ -158,22 +174,25 @@ def main() -> None:
     RUNLOGS.mkdir(parents=True, exist_ok=True)
 
     rows = []
-    reconciled_count = 0
-    no_opinc_count = 0
+    adjustment_counter = Counter()
+    with_adjustment = 0
 
-    print(f"{'TICKER':<6} {'PERIOD':<11} {'REV ($M)':>10} {'GROSS ($M)':>11} {'OPINC ($M)':>11} {'STATUS':<14} {'ARCHETYPE'}")
-    print("-" * 95)
+    print(f"{'TICKER':<6} {'PERIOD':<11} {'REV ($M)':>10} {'OPINC ($M)':>11} {'STATUS':<20} {'FORMULA'}")
+    print("-" * 110)
 
     for ticker in tickers:
         try:
             cik = client.resolve_cik(ticker)
         except Exception:
             continue
+
         cache = RUNLOGS / f"{ticker}_{cik}.json"
         if not cache.exists():
             continue
+
         payload = json.loads(cache.read_text(encoding="utf-8"))
         industry = industry_for(ticker)
+
         anchor = select_annual_facts(payload, "revenue", industry=industry)
         if not anchor:
             continue
@@ -186,17 +205,16 @@ def main() -> None:
                 facts = [f for f in facts if f.get("end") == period]
             v[m] = val(facts[0] if facts else None)
 
-        status, archetype, gap = evaluate_top_half(v)
+        status, formula, gap, adjustments = evaluate_top_half(v)
 
-        if status == "RECONCILES":
-            reconciled_count += 1
-        elif status == "NO_OPERATING_INCOME":
-            no_opinc_count += 1
+        if status == "RECONCILES" and adjustments:
+            with_adjustment += 1
+            for name in adjustments.split("+"):
+                adjustment_counter[name] += 1
 
         print(
-            f"{ticker:<6} {period:<11} "
-            f"{fmt(v['revenue']):>10} {fmt(v['gross_profit']):>11} {fmt(v['operating_income']):>11} "
-            f"{status:<14} {archetype}"
+            f"{ticker:<6} {period:<11} {fmt(v['revenue']):>10} {fmt(v['operating_income']):>11} "
+            f"{status:<20} {formula}"
         )
 
         rows.append({
@@ -207,23 +225,48 @@ def main() -> None:
             "gross_profit": v["gross_profit"] or "",
             "sga": v["sga"] or "",
             "rd": v["rd"] or "",
-            "operating_costs_and_expenses": v["operating_costs_and_expenses"] or "",
             "operating_income": v["operating_income"] or "",
             "status": status,
-            "archetype": archetype,
-            "gap": gap if gap is not None else ""
+            "archetype": formula,
+            "adjustments_used": adjustments,
+            "residual": gap if gap is not None else "",
         })
 
+    fields = [
+        "ticker", "period_end", "revenue", "cogs", "gross_profit", "sga", "rd",
+        "operating_income", "status", "archetype", "adjustments_used", "residual",
+    ]
+
     with OUTPUT_FILE.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+        writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         writer.writerows(rows)
 
-    print("-" * 95)
-    print(f"Total Tickers Analyzed: {len(rows)}")
-    print(f"Top-Half Reconciles:    {reconciled_count}")
-    print(f"No Operating Income:    {no_opinc_count} (Banks / Financials)")
-    print(f"Wrote summary to {OUTPUT_FILE}")
+    reconciles = sum(1 for r in rows if r["status"] == "RECONCILES")
+    no_opinc = sum(1 for r in rows if r["status"] == "NO_OPERATING_INCOME")
+    mismatch = sum(1 for r in rows if r["status"] == "MISMATCH")
+    incomplete = sum(1 for r in rows if r["status"] == "INCOMPLETE_DATA")
+
+    print("-" * 110)
+    print(f"Total analyzed:          {len(rows)}")
+    print(f"RECONCILES:              {reconciles}  ({reconciles - with_adjustment} base only, {with_adjustment} with adjustments)")
+    print(f"NO_OPERATING_INCOME:     {no_opinc}")
+    print(f"MISMATCH:                {mismatch}")
+    print(f"INCOMPLETE_DATA:         {incomplete}")
+
+    if adjustment_counter:
+        print("\nAdjustments that closed a gap:")
+        for name, count in adjustment_counter.most_common():
+            print(f"  {name:<25} {count}")
+
+    print("\nStill MISMATCH (residual size shows severity):")
+    for r in rows:
+        if r["status"] == "MISMATCH":
+            residual = r["residual"]
+            residual_m = f"{float(residual) / 1e6:,.1f}M" if residual != "" else "N/A"
+            print(f"  {r['ticker']:<6} {r['period_end']:<11} residual={residual_m:>12}  nearest={r['archetype']}")
+
+    print(f"\nWrote {OUTPUT_FILE}")
 
 
 if __name__ == "__main__":
