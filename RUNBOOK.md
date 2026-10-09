@@ -84,3 +84,13 @@ SEC/XBRL remains research, not an approved replacement for Canneberge sources.
 A passing unit test verifies software behavior—not accounting correctness.
 Derived and fallback values require explicit provenance and review.
 Income statement, balance sheet, and cash-flow validation precede integration.
+
+## Filing-level XBRL fact harvest (raw 10-K, includes company extensions)
+
+    source ~/.config/northstar/sec.env
+    PYTHONPATH=. python Dev_tools/xbrl/harvest_filing_facts.py MO --terms cost expense
+
+## Top-half IS archetype validation (100-company sample)
+
+    source ~/.config/northstar/sec.env
+    PYTHONPATH=. python Dev_tools/xbrl/validate_top_half_archetypes.py

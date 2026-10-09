@@ -324,3 +324,108 @@ XBRL ZIP / XSD-only filing structure,
 or harvester limitations.
 Decide if PARTIAL rows are valuation-usable by checking whether skipped
 subtotals are minor/ancillary or affect primary financial metrics.
+
+---
+
+## 250-company filing-level IS reconstruction result
+
+After adding filing-level fact harvest, accession-aligned presentation harvest,
+and role-scoped calculation-linkbase reconstruction, the 250-company sample
+produced:
+
+```text
+RECONCILES       169
+PARTIAL           55
+FAIL              11
+NO_PRESENTATION   13
+NO_TOTALS          1
+NO_FACTS           1
+
+Interpretation:
+
+RECONCILES: all detected statement totals reconcile to the filer's own
+calculation linkbase.
+PARTIAL: no arithmetic failures, but at least one subtotal check was
+skipped due to a missing component or missing calculation arc.
+FAIL: at least one subtotal disagrees with the filing's calculation
+linkbase and requires review.
+NO_PRESENTATION: filing facts exist, but no standalone usable presentation
+linkbase was harvested.
+NO_FACTS: filing-fact harvest failed or no usable annual filing facts were
+extracted.
+NO_TOTALS: presentation/facts exist but no subtotal checks were identified.
+Effective tested filing group:
+
+text
+
+250 - 13 NO_PRESENTATION - 1 NO_FACTS = 236
+Within the tested group:
+
+text
+
+RECONCILES + PARTIAL = 224 / 236 = 94.9% with no arithmetic FAIL
+FAIL = 11 / 236 = 4.7%
+NO_TOTALS = 1 / 236 = 0.4%
+This is strong evidence that raw filing-level XBRL can reconstruct income
+statements across a broad public-company sample far better than CompanyFacts
+alone.
+
+Remaining research items before production use:
+
+Investigate the 11 FAIL cases:
+
+AMZN
+AEP
+AON
+BAC
+COF
+CVNA
+CSX
+FANG
+FDX
+HAL
+HST
+Investigate 13 NO_PRESENTATION filings:
+
+BLK
+BX
+BRO
+BLDR
+CHD
+CPRT
+DVN
+D
+DPZ
+EXPD
+GRMN
+HCA
+IBKR
+Determine whether NO_PRESENTATION is caused by:
+
+no standalone _pre.xml,
+presentation data embedded in another package,
+XBRL ZIP / XSD-only filing structure,
+or harvester limitations.
+Decide if PARTIAL rows are valuation-usable by checking whether skipped
+subtotals are minor/ancillary or affect primary financial metrics.
+EOF
+
+git add Dev_tools/xbrl/FINDINGS.md
+git commit -m "Document 250-company filing-level IS reconstruction coverage"
+git push
+
+text
+
+
+## Next after the commit
+
+Do **not** move to the balance sheet yet. The next focused task is the 11 FAIL cases.
+
+The highest-leverage next tool is a `fail_reasons` summarizer that groups FAILs by:
+
+```text
+line item failing
+delta
+is delta immaterial?
+is failure concentrated in banks?
+is failure concentrated in NCI / preferred / EPS areas?
