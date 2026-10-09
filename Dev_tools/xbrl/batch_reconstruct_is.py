@@ -20,6 +20,9 @@ Output:
 
 import argparse
 import csv
+import sys
+
+csv.field_size_limit(sys.maxsize)
 import os
 import time
 from collections import Counter, defaultdict

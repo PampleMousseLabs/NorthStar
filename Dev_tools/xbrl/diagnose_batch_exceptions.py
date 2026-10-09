@@ -9,6 +9,9 @@ Reads local runlogs only. No network.
 """
 
 import csv
+import sys
+
+csv.field_size_limit(sys.maxsize)
 from collections import defaultdict
 from pathlib import Path
 

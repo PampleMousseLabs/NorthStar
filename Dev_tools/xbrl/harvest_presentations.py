@@ -108,6 +108,91 @@ def get_latest_10k(session: requests.Session, cik: str) -> dict | None:
     return None
 
 
+def latest_facts_filing_accession(ticker: str) -> str | None:
+    """Return the accession from the most recently filed local facts CSV."""
+    candidates = []
+
+    for facts_path in RUNLOGS.glob(f"filing_facts_{ticker}_*.csv"):
+        try:
+            with facts_path.open(newline="", encoding="utf-8") as handle:
+                first_row = next(csv.DictReader(handle), None)
+        except (OSError, csv.Error):
+            continue
+
+        if not first_row:
+            continue
+
+        accession = (first_row.get("filing_accession") or "").strip()
+        filing_date = (first_row.get("filing_date") or "").strip()
+
+        if accession:
+            candidates.append((filing_date, accession))
+
+    if not candidates:
+        return None
+
+    # If multiple local fact files exist, use the latest filing date.
+    return max(candidates)[1]
+
+
+def get_filing_by_accession(
+    session: requests.Session,
+    cik: str,
+    target_accession: str,
+) -> dict | None:
+    """Find exact filing metadata for an accession in SEC submissions."""
+    url = f"https://data.sec.gov/submissions/CIK{cik}.json"
+    response = session.get(url, timeout=30)
+    response.raise_for_status()
+
+    recent = response.json().get("filings", {}).get("recent", {})
+
+    for form, accession, filing_date, primary_document in zip(
+        recent.get("form", []),
+        recent.get("accessionNumber", []),
+        recent.get("filingDate", []),
+        recent.get("primaryDocument", []),
+    ):
+        if accession == target_accession:
+            return {
+                "form": form,
+                "accession": accession,
+                "filing_date": filing_date,
+                "primary_document": primary_document,
+            }
+
+    return None
+
+
+def get_filing_for_ticker(
+    session: requests.Session,
+    cik: str,
+    ticker: str,
+) -> dict | None:
+    """
+    Use the accession from harvested filing facts when present.
+
+    This prevents facts from a 10-K/A being combined with presentation rows
+    from the original 10-K. Only fall back to latest-10-K selection if this
+    ticker has no local filing-facts CSV.
+    """
+    target_accession = latest_facts_filing_accession(ticker)
+
+    if not target_accession:
+        return get_latest_10k(session, cik)
+
+    filing = get_filing_by_accession(session, cik, target_accession)
+
+    if filing is None:
+        raise RuntimeError(
+            f"Facts accession {target_accession} for {ticker} was not found "
+            "in the SEC recent-submissions response; refusing to use a "
+            "different filing."
+        )
+
+    return filing
+
+
 def find_pre_xml_url(
     session: requests.Session,
     cik: str,
@@ -386,7 +471,7 @@ def main() -> None:
             if cik is None:
                 cik = client.resolve_cik(ticker)
 
-            filing = get_latest_10k(session, cik)
+            filing = get_filing_for_ticker(session, cik, ticker)
             if filing is None:
                 print("  NO_10K")
                 status_rows.append({

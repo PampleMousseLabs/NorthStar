@@ -13,6 +13,9 @@ Output:
 from collections import Counter, defaultdict
 import argparse
 import csv
+import sys
+
+csv.field_size_limit(sys.maxsize)
 import os
 import time
 from pathlib import Path
