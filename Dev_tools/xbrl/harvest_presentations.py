@@ -172,42 +172,65 @@ def concept_from_href(href: str) -> str:
 
 
 def classify_role(role: str) -> str:
-    """Broad statement/disclosure category. Conservative: unknown stays 'other'."""
-    name = role.rsplit("/", 1)[-1].lower()
+    """
+    Classify a presentation role from its name.
+
+    Order matters:
+      1. disclosure markers
+      2. cash flow / balance sheet / equity
+      3. income statement - including combined "...AndComprehensiveIncome"
+         statements and word orders like "StatementsOfConsolidatedIncome"
+      4. standalone comprehensive income
+    """
+    name = role.rsplit("/", 1)[-1].lower().replace("-", "").replace("_", "")
 
     disclosure_markers = (
         "parenthetical", "detail", "details", "disclosure",
-        "policies", "policy", "schedule", "table",
+        "policies", "policy", "schedule", "tables",
+        "narrative", "reconcil", "rollforward", "reclassification",
     )
-    if any(marker in name for marker in disclosure_markers):
+    if any(m in name for m in disclosure_markers):
         return "disclosure"
+
+    if "cashflow" in name:
+        return "cash_flow_statement"
+
+    if ("balancesheet" in name or "financialposition" in name
+            or "financialcondition" in name):
+        return "balance_sheet"
+
+    if "equity" in name and any(w in name for w in ("statement", "statements", "changes", "stockholder", "shareholder", "investment")):
+        return "equity_statement"
+
+    # Income statement: needs a statement-ish word AND an income-ish word.
+    # "consolidated" counts as statement-ish (CAT: ConsolidatedResultsOfOperations).
+    has_statement_word = any(w in name for w in
+                             ("statement", "statements", "consolidated"))
+    has_income_word = any(w in name for w in
+                          ("income", "operations", "earnings"))
+
+    # Non-statement income roles to exclude (EPS, taxes, segments, AOCI, etc.)
+    non_statement_income = (
+        "earningspershare", "pershare", "incometax", "taxes",
+        "segment", "accumulatedother", "netinterestincome",
+        "natureofoperations", "discontinuedoperations",
+        "otherincome", "restructuring", "interestincome",
+    )
+
+    if has_statement_word and has_income_word and not any(
+            m in name for m in non_statement_income):
+        # Standalone comprehensive income statement is its own category,
+        # but a COMBINED statement (operations/income/earnings AND
+        # comprehensive income) is the primary income statement.
+        if "comprehensiveincome" in name:
+            stripped = name.replace("comprehensiveincome", "")
+            if any(w in stripped for w in ("income", "operations", "earnings")):
+                return "income_statement"
+            return "comprehensive_income_statement"
+        return "income_statement"
 
     if "comprehensiveincome" in name:
         return "comprehensive_income_statement"
-    if "cashflow" in name:
-        return "cash_flow_statement"
-    if "balancesheet" in name or "financialposition" in name or "financialcondition" in name:
-        return "balance_sheet"
-    if any(k in name for k in (
-        "consolidatedincomestatements",
-        "consolidatedstatementsofincome",
-        "consolidatedstatementofincome",
-        "consolidatedstatementsofoperations",
-        "consolidatedstatementofoperations",
-        "consolidatedstatementsofearnings",
-        "consolidatedstatementofearnings",
-        "statementsofincome",
-        "statementofincome",
-        "statementsofoperations",
-        "statementofoperations",
-        "statementsofearnings",
-        "statementofearnings",
-    )):
-        return "income_statement"
-    if any(k in name for k in (
-        "stockholdersequity", "shareholdersequity", "changesinequity",
-    )):
-        return "equity_statement"
 
     return "other"
 
