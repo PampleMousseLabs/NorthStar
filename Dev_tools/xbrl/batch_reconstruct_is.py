@@ -98,14 +98,22 @@ def load_presentation_index():
         return index
     with p.open(newline="", encoding="utf-8") as h:
         for r in csv.DictReader(h):
-            if r["statement_category"] == "income_statement":
+            if r["statement_category"] in ("income_statement", "comprehensive_income_statement"):
                 clean_acc = r["filing_accession"].replace("-", "")
                 index[(r["ticker"], clean_acc)].append(r)
     return index
 
 def select_role(rows):
-    c = Counter(r["statement_role"] for r in rows)
-    return c.most_common(1)[0][0] if c else ""
+    """
+    Prefer a true income-statement role. Fall back to a comprehensive-income
+    role only when the filing has none (combined statements labeled only as
+    'ComprehensiveIncome', e.g. ALLE, ATO).
+    """
+    income = [r for r in rows if r["statement_category"] == "income_statement"]
+    pool = income if income else rows
+    c = Counter(r["statement_role"] for r in pool)
+    return c.most_common(1)[0][0]
+
 
 def build_tree(rows):
     children = defaultdict(list)
