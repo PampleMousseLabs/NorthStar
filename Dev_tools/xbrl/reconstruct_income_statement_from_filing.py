@@ -280,9 +280,12 @@ def parse_calc_raw(xml_text: str) -> list:
 
 def build_calc_map(raw_arcs: list, from_is_total: bool, role: str | None = None) -> dict:
     """Build total -> [(component, weight)] for one calculation network."""
+    if role is None:
+        return {}
+
     calc_map = defaultdict(list)
     for arc_role, frm, to, weight in raw_arcs:
-        if role is not None and arc_role != role:
+        if arc_role != role:
             continue
         total, item = (frm, to) if from_is_total else (to, frm)
         calc_map[total].append((item, weight))
@@ -384,17 +387,20 @@ def reconstruct(session, ticker: str, labels: dict, pres_index: dict,
         cal_text = load_cal_xml(session, ticker, cik, accession, cal_name)
         raw_arcs = parse_calc_raw(cal_text)
         calc_role = select_calc_role(raw_arcs, role)
-        from_is_total = choose_calc_direction(raw_arcs, values, tol, calc_role)
-        calc_map = build_calc_map(raw_arcs, from_is_total, calc_role)
-        scoped = sum(1 for r, _, _, _ in raw_arcs if calc_role is None or r == calc_role)
-        direction = "from=total" if from_is_total else "to=total"
         if calc_role is None:
+            calc_map = {}
             cal_note = (
-                f"cal: {len(raw_arcs)} arcs, NO ROLE MATCH "
-                f"(all networks merged, totals may double count), {direction}"
+                f"cal: {len(raw_arcs)} arcs, NO MATCHING ROLE "
+                "(calculation-linkbase checks unavailable)"
             )
         else:
-            cal_note = f"cal: {scoped}/{len(raw_arcs)} arcs in statement network, {direction}"
+            from_is_total = choose_calc_direction(raw_arcs, values, tol, calc_role)
+            calc_map = build_calc_map(raw_arcs, from_is_total, calc_role)
+            scoped = sum(1 for r, _, _, _ in raw_arcs if r == calc_role)
+            direction = "from=total" if from_is_total else "to=total"
+            cal_note = (
+                f"cal: {scoped}/{len(raw_arcs)} arcs in statement network, {direction}"
+            )
     else:
         calc_map = {}
         cal_note = "cal: NOT FOUND (presentation totalLabel fallback only)"

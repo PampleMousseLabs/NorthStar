@@ -221,9 +221,12 @@ def parse_calc_raw(xml_text):
     return arcs
 
 def build_calc_map(raw_arcs, from_is_total, role):
+    if role is None:
+        return {}
+
     m = defaultdict(list)
     for arc_role, frm, to, w in raw_arcs:
-        if role is not None and arc_role != role:
+        if arc_role != role:
             continue
         total, item = (frm, to) if from_is_total else (to, frm)
         m[total].append((item, w))
@@ -307,8 +310,17 @@ def main():
                 cal_text = load_cal_xml(session, ticker, cik, acc, cal_name)
                 raw_arcs = parse_calc_raw(cal_text)
                 calc_role = select_calc_role(raw_arcs, role)
-                from_is_total = choose_calc_direction(raw_arcs, values, args.tolerance, calc_role)
-                calc_map = build_calc_map(raw_arcs, from_is_total, calc_role)
+                if calc_role is None:
+                    calc_map = {}
+                    print(
+                        "  cal role mismatch: no calculation network matches "
+                        "the presentation role; calculation-linkbase checks unavailable"
+                    )
+                else:
+                    from_is_total = choose_calc_direction(
+                        raw_arcs, values, args.tolerance, calc_role
+                    )
+                    calc_map = build_calc_map(raw_arcs, from_is_total, calc_role)
             except Exception as e:
                 print(f"  cal load failed: {e}")
         time.sleep(0.15)
