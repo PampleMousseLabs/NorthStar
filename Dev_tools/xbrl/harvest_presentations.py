@@ -256,16 +256,10 @@ def concept_from_href(href: str) -> str:
     return f"{namespace}:{concept}"
 
 
-def classify_role(role: str) -> str:
+def classify_role(role: str, role_rows: list[dict] | None = None) -> str:
     """
-    Classify a presentation role from its name.
-
-    Order matters:
-      1. disclosure markers
-      2. cash flow / balance sheet / equity
-      3. income statement - including combined "...AndComprehensiveIncome"
-         statements and word orders like "StatementsOfConsolidatedIncome"
-      4. standalone comprehensive income
+    Classify a presentation role using its name and, when available,
+    its presentation structure.
     """
     name = role.rsplit("/", 1)[-1].lower().replace("-", "").replace("_", "")
 
@@ -277,6 +271,34 @@ def classify_role(role: str) -> str:
     if any(m in name for m in disclosure_markers):
         return "disclosure"
 
+    # Identify primary income statements that combine income and OCI.
+    if role_rows:
+        concepts = set()
+        for row in role_rows:
+            for field in ("parent_concept", "child_concept"):
+                concept = row.get(field, "")
+                if concept:
+                    concepts.add(concept.split(":", 1)[-1])
+
+        has_income_root = any(
+            concept in {
+                "IncomeStatementAbstract",
+                "StatementOfIncomeAndComprehensiveIncomeAbstract",
+            }
+            for concept in concepts
+        )
+
+        has_revenue = any(
+            concept.startswith(("Revenue", "SalesRevenue"))
+            or concept == "Revenues"
+            for concept in concepts
+        )
+
+        has_operating_income = "OperatingIncomeLoss" in concepts
+
+        if has_income_root and has_revenue and has_operating_income:
+            return "income_statement"
+
     if "cashflow" in name:
         return "cash_flow_statement"
 
@@ -284,17 +306,21 @@ def classify_role(role: str) -> str:
             or "financialcondition" in name):
         return "balance_sheet"
 
-    if "equity" in name and any(w in name for w in ("statement", "statements", "changes", "stockholder", "shareholder", "investment")):
+    if "equity" in name and any(
+        w in name for w in (
+            "statement", "statements", "changes",
+            "stockholder", "shareholder", "investment",
+        )
+    ):
         return "equity_statement"
 
-    # Income statement: needs a statement-ish word AND an income-ish word.
-    # "consolidated" counts as statement-ish (CAT: ConsolidatedResultsOfOperations).
-    has_statement_word = any(w in name for w in
-                             ("statement", "statements", "consolidated"))
-    has_income_word = any(w in name for w in
-                          ("income", "operations", "earnings"))
+    has_statement_word = any(
+        w in name for w in ("statement", "statements", "consolidated")
+    )
+    has_income_word = any(
+        w in name for w in ("income", "operations", "earnings")
+    )
 
-    # Non-statement income roles to exclude (EPS, taxes, segments, AOCI, etc.)
     non_statement_income = (
         "earningspershare", "pershare", "incometax", "taxes",
         "segment", "accumulatedother", "netinterestincome",
@@ -303,22 +329,22 @@ def classify_role(role: str) -> str:
     )
 
     if has_statement_word and has_income_word and not any(
-            m in name for m in non_statement_income):
-        # Standalone comprehensive income statement is its own category,
-        # but a COMBINED statement (operations/income/earnings AND
-        # comprehensive income) is the primary income statement.
+        m in name for m in non_statement_income
+    ):
         if "comprehensiveincome" in name:
             stripped = name.replace("comprehensiveincome", "")
-            if any(w in stripped for w in ("income", "operations", "earnings")):
+            if any(
+                w in stripped for w in ("income", "operations", "earnings")
+            ):
                 return "income_statement"
             return "comprehensive_income_statement"
+
         return "income_statement"
 
     if "comprehensiveincome" in name:
         return "comprehensive_income_statement"
 
     return "other"
-
 
 def is_structural_concept(concept: str) -> bool:
     local_name = concept.split(":", 1)[-1]
@@ -340,7 +366,7 @@ def parse_pre_xml(
 
     for presentation_link in root.iter(LINK_PRESENTATION):
         role = presentation_link.get(XLINK_ROLE) or ""
-        role_category = classify_role(role)
+        role_rows = []
 
         locators = {}
         for locator in presentation_link.findall(LINK_LOC):
@@ -358,7 +384,7 @@ def parse_pre_xml(
 
             preferred = arc.get(XLINK_PREFERRED_LABEL) or ""
 
-            rows.append({
+            role_rows.append({
                 "ticker": ticker,
                 "cik": cik,
                 "form": filing["form"],
@@ -367,13 +393,20 @@ def parse_pre_xml(
                 "filing_index_url": index_url,
                 "pre_xml_url": pre_url,
                 "statement_role": role,
-                "statement_category": role_category,
+                "statement_category": "",
                 "parent_concept": locators.get(arc.get(XLINK_FROM) or "", ""),
                 "child_concept": child_concept,
                 "sibling_order": arc.get("order") or "",
                 "preferred_label_role": preferred.rsplit("/", 1)[-1],
                 "is_structural": is_structural_concept(child_concept),
             })
+
+        role_category = classify_role(role, role_rows)
+
+        for row in role_rows:
+            row["statement_category"] = role_category
+
+        rows.extend(role_rows)
 
     return rows
 
