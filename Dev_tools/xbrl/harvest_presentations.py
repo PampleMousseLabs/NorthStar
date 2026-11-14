@@ -13,6 +13,7 @@ import csv
 import os
 import time
 from pathlib import Path
+from northstar.data.storage.xbrl_cache import xbrl_cache_root
 from urllib.parse import urljoin
 from xml.etree import ElementTree as ET
 
@@ -21,7 +22,8 @@ import requests
 from northstar.data.sources.sec_edgar import SECEdgarClient
 
 RUNLOGS = Path("Dev_tools/xbrl/runlogs")
-CACHE_DIR = RUNLOGS / "presentation_cache"
+CACHE_ROOT = xbrl_cache_root(RUNLOGS)
+CACHE_DIR = CACHE_ROOT / "presentation_cache"
 TICKERS_FILE = Path("Dev_tools/xbrl/tickers_sample.txt")
 
 LINK_NS = "http://www.xbrl.org/2003/linkbase"

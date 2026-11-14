@@ -16,10 +16,12 @@ import time
 from collections import defaultdict
 from datetime import date
 from pathlib import Path
+from northstar.data.storage.xbrl_cache import xbrl_cache_root
 
 from northstar.data.sources.sec_edgar import SECEdgarClient
 
 RUNLOGS = Path("Dev_tools/xbrl/runlogs")
+CACHE_ROOT = xbrl_cache_root(RUNLOGS)
 ANNUAL_MIN_DAYS = 330
 ANNUAL_MAX_DAYS = 370
 ANNUAL_FORMS = {"10-K", "10-K/A", "20-F", "20-F/A"}
@@ -37,7 +39,7 @@ def load_tickers(path: str) -> list[str]:
 def load_companyfacts(client: SECEdgarClient, ticker: str) -> dict:
     """Use cached JSON when available so repeat runs don't re-hit the SEC."""
     cik = client.resolve_cik(ticker)
-    cache = RUNLOGS / f"{ticker}_{cik}.json"
+    cache = CACHE_ROOT / f"{ticker}_{cik}.json"
 
     if cache.exists():
         return json.loads(cache.read_text())

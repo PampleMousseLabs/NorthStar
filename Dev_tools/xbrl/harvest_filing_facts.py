@@ -22,6 +22,7 @@ import re
 from decimal import Decimal, InvalidOperation
 from datetime import date
 from pathlib import Path
+from northstar.data.storage.xbrl_cache import xbrl_cache_root
 from urllib.parse import urljoin
 from xml.etree import ElementTree as ET
 
@@ -30,7 +31,8 @@ import requests
 from northstar.data.sources.sec_edgar import SECEdgarClient
 
 RUNLOGS = Path("Dev_tools/xbrl/runlogs")
-CACHE_DIR = RUNLOGS / "filing_fact_cache"
+CACHE_ROOT = xbrl_cache_root(RUNLOGS)
+CACHE_DIR = CACHE_ROOT / "filing_fact_cache"
 ANNUAL_FORMS = {"10-K", "10-K/A", "20-F", "20-F/A"}
 CIK_OVERRIDES = {"XOM": "0000034088"}
 

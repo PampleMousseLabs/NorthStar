@@ -14,11 +14,13 @@ import csv
 import json
 import time
 from pathlib import Path
+from northstar.data.storage.xbrl_cache import xbrl_cache_root
 
 from northstar.data.sources.sec_edgar import SECEdgarClient
 from northstar.data.transforms.sec_xbrl import select_annual_facts
 
 RUNLOGS = Path("Dev_tools/xbrl/runlogs")
+CACHE_ROOT = xbrl_cache_root(RUNLOGS)
 TICKERS_FILE = Path("Dev_tools/xbrl/tickers_sample.txt")
 
 METRICS = [
@@ -40,7 +42,7 @@ def load_tickers() -> list[str]:
 
 def load_payload(client: SECEdgarClient, ticker: str) -> dict:
     cik = client.resolve_cik(ticker)
-    path = RUNLOGS / f"{ticker}_{cik}.json"
+    path = CACHE_ROOT / f"{ticker}_{cik}.json"
     if path.exists():
         return json.loads(path.read_text(encoding="utf-8"))
     payload = client.fetch_companyfacts(ticker)

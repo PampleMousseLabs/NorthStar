@@ -23,11 +23,13 @@ import csv
 import json
 from datetime import date
 from pathlib import Path
+from northstar.data.storage.xbrl_cache import xbrl_cache_root
 
 from northstar.data.sources.sec_edgar import SECEdgarClient
 
 
 RUNLOGS = Path("Dev_tools/xbrl/runlogs")
+CACHE_ROOT = xbrl_cache_root(RUNLOGS)
 SUMMARY_PATH = RUNLOGS / "scaled_is_summary.csv"
 ISSUE_OUTPUT = RUNLOGS / "scaled_is_issue_summary.csv"
 CANDIDATE_OUTPUT = RUNLOGS / "scaled_is_bridge_candidates.csv"
@@ -84,7 +86,7 @@ def load_companyfacts(
     except Exception:
         return None
 
-    cache_path = RUNLOGS / f"{ticker}_{cik}.json"
+    cache_path = CACHE_ROOT / f"{ticker}_{cik}.json"
 
     if not cache_path.exists():
         return None

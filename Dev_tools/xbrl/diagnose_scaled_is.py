@@ -18,8 +18,10 @@ import re
 from collections import Counter
 from datetime import date
 from pathlib import Path
+from northstar.data.storage.xbrl_cache import xbrl_cache_root
 
 RUNLOGS = Path("Dev_tools/xbrl/runlogs")
+CACHE_ROOT = xbrl_cache_root(RUNLOGS)
 SUMMARY = RUNLOGS / "scaled_is_summary.csv"
 OUT = RUNLOGS / "scaled_is_diagnostics.csv"
 
@@ -43,7 +45,7 @@ def fmt(value):
 
 
 def find_cache(ticker):
-    for path in RUNLOGS.glob(f"{ticker}_*.json"):
+    for path in CACHE_ROOT.glob(f"{ticker}_*.json"):
         match = CACHE_NAME.match(path.name)
         if match and match.group("ticker") == ticker:
             return path

@@ -21,11 +21,13 @@ import time
 from collections import Counter
 from itertools import combinations
 from pathlib import Path
+from northstar.data.storage.xbrl_cache import xbrl_cache_root
 
 from northstar.data.sources.sec_edgar import SECEdgarClient
 from northstar.data.transforms.sec_xbrl import select_annual_facts
 
 RUNLOGS = Path("Dev_tools/xbrl/runlogs")
+CACHE_ROOT = xbrl_cache_root(RUNLOGS)
 TICKERS_SAMPLE = Path("Dev_tools/xbrl/tickers_sample.txt")
 CONSTITUENTS = Path("Dev_tools/xbrl/constituents.csv")
 
@@ -71,7 +73,7 @@ def load_tickers(path: Path, limit: int) -> list[str]:
 
 def load_payload(client: SECEdgarClient, ticker: str) -> dict:
     cik = client.resolve_cik(ticker)
-    cache = RUNLOGS / f"{ticker}_{cik}.json"
+    cache = CACHE_ROOT / f"{ticker}_{cik}.json"
     if cache.exists():
         return json.loads(cache.read_text(encoding="utf-8"))
     payload = client.fetch_companyfacts(ticker)

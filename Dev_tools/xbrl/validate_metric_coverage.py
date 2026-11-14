@@ -17,11 +17,13 @@ import sys
 import time
 from datetime import date
 from pathlib import Path
+from northstar.data.storage.xbrl_cache import xbrl_cache_root
 
 from northstar.data.sources.sec_edgar import SECEdgarClient
 from northstar.data.transforms.sec_xbrl import select_annual_facts
 
 RUNLOGS = Path("Dev_tools/xbrl/runlogs")
+CACHE_ROOT = xbrl_cache_root(RUNLOGS)
 TICKERS_FILE = Path("Dev_tools/xbrl/tickers_sample.txt")
 STALE_DAYS = 550
 
@@ -35,7 +37,7 @@ def load_tickers() -> list[str]:
 
 
 def load_companyfacts(client: SECEdgarClient, ticker: str, cik: str) -> dict:
-    cache_path = RUNLOGS / f"{ticker}_{cik}.json"
+    cache_path = CACHE_ROOT / f"{ticker}_{cik}.json"
     if cache_path.exists():
         return json.loads(cache_path.read_text())
     payload = client.fetch_companyfacts(ticker)

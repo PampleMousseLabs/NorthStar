@@ -27,6 +27,7 @@ import os
 import time
 from collections import Counter, defaultdict
 from pathlib import Path
+from northstar.data.storage.xbrl_cache import xbrl_cache_root
 from urllib.parse import urljoin
 from xml.etree import ElementTree as ET
 
@@ -35,7 +36,8 @@ import requests
 from northstar.data.sources.sec_edgar import SECEdgarClient
 
 RUNLOGS = Path("Dev_tools/xbrl/runlogs")
-CACHE_DIR = RUNLOGS / "filing_fact_cache"
+CACHE_ROOT = xbrl_cache_root(RUNLOGS)
+CACHE_DIR = CACHE_ROOT / "filing_fact_cache"
 DEFAULT_TICKERS = Path("Dev_tools/xbrl/tickers_100_usable.txt")
 OUT = RUNLOGS / "reconstructed_is_batch_summary.csv"
 

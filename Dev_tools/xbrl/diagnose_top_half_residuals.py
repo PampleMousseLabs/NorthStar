@@ -16,6 +16,7 @@ from collections import Counter
 from datetime import date
 from itertools import combinations
 from pathlib import Path
+from northstar.data.storage.xbrl_cache import xbrl_cache_root
 
 from northstar.data.sources.sec_edgar import SECEdgarClient
 from northstar.data.transforms.sec_xbrl import select_annual_facts
@@ -23,6 +24,7 @@ from northstar.data.transforms.sec_xbrl_key import _EXPLICIT_XBRL_ALIASES
 from Dev_tools.xbrl.industry_map import industry_for
 
 RUNLOGS = Path("Dev_tools/xbrl/runlogs")
+CACHE_ROOT = xbrl_cache_root(RUNLOGS)
 SUMMARY = RUNLOGS / "top_half_archetype_summary.csv"
 OUTPUT = RUNLOGS / "top_half_residual_candidates.csv"
 
@@ -111,7 +113,7 @@ def main() -> None:
         except Exception:
             continue
 
-        cache = RUNLOGS / f"{ticker}_{cik}.json"
+        cache = CACHE_ROOT / f"{ticker}_{cik}.json"
         if not cache.exists():
             continue
 

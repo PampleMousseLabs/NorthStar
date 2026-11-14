@@ -3,6 +3,9 @@ import sys
 import json
 import requests
 from pathlib import Path
+from northstar.data.storage.xbrl_cache import xbrl_cache_root
+
+CACHE_ROOT = xbrl_cache_root(Path("Dev_tools/xbrl/runlogs"))
 
 SEC_USER_AGENT = os.getenv("SEC_USER_AGENT")
 if not SEC_USER_AGENT:
@@ -23,7 +26,7 @@ def resolve(ticker):
     raise LookupError(ticker)
 
 def load_companyfacts(ticker, cik):
-    cache = Path(f"Dev_tools/xbrl/runlogs/{ticker}_{cik}.json")
+    cache = CACHE_ROOT / f"{ticker}_{cik}.json"
     if cache.exists():
         return json.loads(cache.read_text())
     data = fetch(f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json")

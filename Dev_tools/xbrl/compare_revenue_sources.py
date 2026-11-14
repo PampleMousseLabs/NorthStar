@@ -31,6 +31,7 @@ import re
 import time
 from datetime import date
 from pathlib import Path
+from northstar.data.storage.xbrl_cache import xbrl_cache_root
 
 import pandas as pd
 import yfinance as yf
@@ -43,6 +44,7 @@ from northstar.data.transforms.sec_xbrl import select_annual_facts
 
 
 RUNLOGS = Path("Dev_tools/xbrl/runlogs")
+CACHE_ROOT = xbrl_cache_root(RUNLOGS)
 TICKERS_FILE = Path("Dev_tools/xbrl/tickers_sample.txt")
 MAX_PERIODS = 5
 
@@ -100,7 +102,7 @@ def load_companyfacts(client: SECEdgarClient, ticker: str) -> tuple[str, dict]:
     Fetch and cache only when this ticker has no local payload yet.
     """
     cik = client.resolve_cik(ticker)
-    cache_path = RUNLOGS / f"{ticker}_{cik}.json"
+    cache_path = CACHE_ROOT / f"{ticker}_{cik}.json"
 
     if cache_path.exists():
         return cik, json.loads(cache_path.read_text(encoding="utf-8"))
