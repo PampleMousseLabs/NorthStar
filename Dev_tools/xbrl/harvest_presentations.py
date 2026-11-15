@@ -1,10 +1,16 @@
 """
-Harvest XBRL presentation relationships from the latest 10-K of sampled companies.
+Harvest XBRL presentation relationships from sampled companies' latest 10-K.
 
-Outputs (Dev_tools/xbrl/runlogs/, gitignored):
-    presentation_rows.csv              one row per parent-child relationship
-    presentation_tag_frequency.csv     concept frequency by statement category
-    presentation_harvest_status.csv    retrieval status per ticker
+Sources:
+    1. Standalone SEC presentation linkbase (*_pre.xml).
+    2. Embedded presentation relationships in the filing's XSD schema.
+
+Outputs:
+    presentation_rows.csv
+    presentation_tag_frequency.csv
+    presentation_harvest_status.csv
+
+Use --output-dir to keep experimental runs separate from benchmark outputs.
 """
 
 from collections import defaultdict
@@ -13,13 +19,14 @@ import csv
 import os
 import time
 from pathlib import Path
-from northstar.data.storage.xbrl_cache import xbrl_cache_root
 from urllib.parse import urljoin
 from xml.etree import ElementTree as ET
 
 import requests
 
+from northstar.data.storage.xbrl_cache import xbrl_cache_root
 from northstar.data.sources.sec_edgar import SECEdgarClient
+
 
 RUNLOGS = Path("Dev_tools/xbrl/runlogs")
 CACHE_ROOT = xbrl_cache_root(RUNLOGS)
@@ -41,7 +48,6 @@ XLINK_LABEL = f"{{{XLINK_NS}}}label"
 XLINK_HREF = f"{{{XLINK_NS}}}href"
 XLINK_PREFERRED_LABEL = f"{{{XLINK_NS}}}preferredLabel"
 
-# SEC ticker file resolves XOM to a newer CIK with no 10-K history.
 CIK_OVERRIDES = {
     "XOM": "0000034088",
 }
@@ -133,7 +139,6 @@ def latest_facts_filing_accession(ticker: str) -> str | None:
     if not candidates:
         return None
 
-    # If multiple local fact files exist, use the latest filing date.
     return max(candidates)[1]
 
 
@@ -195,65 +200,113 @@ def get_filing_for_ticker(
     return filing
 
 
-def find_pre_xml_url(
+def find_presentation_source(
     session: requests.Session,
     cik: str,
     accession: str,
     primary_document: str,
-) -> str | None:
-    """Locate the presentation linkbase via the SEC archive directory JSON."""
+) -> tuple[str | None, str]:
+    """
+    Find the best available presentation source in the SEC archive.
+
+    Prefer a standalone _pre.xml. If absent, look for the filing's embedded
+    presentation relationships in its XSD schema.
+
+    Returns (URL, source_type), where source_type is PRE_XML, EMBEDDED_XSD,
+    or NONE. Ambiguous archive matches raise an error rather than guessing.
+    """
     base_url = filing_base_url(cik, accession)
     response = session.get(urljoin(base_url, "index.json"), timeout=30)
     response.raise_for_status()
 
     items = response.json().get("directory", {}).get("item", [])
-    candidates = [
+    filenames = [
         str(item["name"])
         for item in items
-        if item.get("name") and str(item["name"]).lower().endswith("_pre.xml")
+        if item.get("name")
     ]
 
-    if not candidates:
-        return None
+    pre_candidates = [
+        name for name in filenames
+        if name.lower().endswith("_pre.xml")
+    ]
 
-    expected = f"{Path(primary_document).stem.lower()}_pre.xml"
-    for candidate in candidates:
-        if candidate.lower() == expected:
-            return urljoin(base_url, candidate)
+    expected_pre = f"{Path(primary_document).stem.lower()}_pre.xml"
 
-    if len(candidates) == 1:
-        return urljoin(base_url, candidates[0])
+    if pre_candidates:
+        for candidate in pre_candidates:
+            if candidate.lower() == expected_pre:
+                return urljoin(base_url, candidate), "PRE_XML"
 
-    raise RuntimeError(
-        f"Multiple _pre.xml files, none matching {primary_document}: {candidates}"
-    )
+        if len(pre_candidates) == 1:
+            return urljoin(base_url, pre_candidates[0]), "PRE_XML"
+
+        raise RuntimeError(
+            f"Multiple _pre.xml files, none matching "
+            f"{primary_document}: {pre_candidates}"
+        )
+
+    xsd_candidates = [
+        name for name in filenames
+        if name.lower().endswith(".xsd")
+    ]
+
+    primary_stem = Path(primary_document).stem.lower()
+    if primary_stem.endswith("_htm"):
+        primary_stem = primary_stem[:-4]
+
+    expected_xsd = f"{primary_stem}.xsd"
+
+    for candidate in xsd_candidates:
+        if candidate.lower() == expected_xsd:
+            return urljoin(base_url, candidate), "EMBEDDED_XSD"
+
+    if len(xsd_candidates) == 1:
+        return urljoin(base_url, xsd_candidates[0]), "EMBEDDED_XSD"
+
+    if len(xsd_candidates) > 1:
+        raise RuntimeError(
+            f"Multiple XSD files, none matching {expected_xsd}: "
+            f"{xsd_candidates}"
+        )
+
+    return None, "NONE"
 
 
-def load_pre_xml(
+def load_presentation_source(
     session: requests.Session,
     ticker: str,
     accession: str,
-    pre_url: str,
+    source_url: str,
+    source_type: str,
 ) -> str:
+    """Load a presentation source using a source-specific cache filename."""
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    cache_path = CACHE_DIR / f"{ticker}_{accession.replace('-', '')}_pre.xml"
+
+    suffix = "_pre.xml" if source_type == "PRE_XML" else "_embedded.xsd"
+    cache_path = (
+        CACHE_DIR / f"{ticker}_{accession.replace('-', '')}{suffix}"
+    )
 
     if cache_path.exists():
         return cache_path.read_text(encoding="utf-8")
 
-    response = session.get(pre_url, timeout=30)
+    response = session.get(source_url, timeout=30)
     response.raise_for_status()
+
     cache_path.write_text(response.text, encoding="utf-8")
     return response.text
 
 
 def concept_from_href(href: str) -> str:
-    """us-gaap_Revenues -> us-gaap:Revenues"""
+    """Convert a locator fragment such as us-gaap_Revenues to us-gaap:Revenues."""
     if not href:
         return ""
+
     fragment = href.rsplit("#", 1)[-1]
     if "_" not in fragment:
         return fragment
+
     namespace, concept = fragment.split("_", 1)
     return f"{namespace}:{concept}"
 
@@ -270,12 +323,20 @@ def classify_role(role: str, role_rows: list[dict] | None = None) -> str:
         "policies", "policy", "schedule", "tables",
         "narrative", "reconcil", "rollforward", "reclassification",
     )
-    if any(m in name for m in disclosure_markers):
+    if any(marker in name for marker in disclosure_markers):
         return "disclosure"
 
-    # Identify primary income statements that combine income and OCI.
+    # Respect an explicit comprehensive-income role designation before
+    # structural evidence, which can otherwise promote it to income_statement.
+    if "comprehensiveincome" in name:
+        stripped = name.replace("comprehensiveincome", "")
+        if any(word in stripped for word in ("income", "operations", "earnings")):
+            return "income_statement"
+        return "comprehensive_income_statement"
+
     if role_rows:
         concepts = set()
+
         for row in role_rows:
             for field in ("parent_concept", "child_concept"):
                 concept = row.get(field, "")
@@ -296,20 +357,21 @@ def classify_role(role: str, role_rows: list[dict] | None = None) -> str:
             for concept in concepts
         )
 
-        has_operating_income = "OperatingIncomeLoss" in concepts
-
-        if has_income_root and has_revenue and has_operating_income:
+        if has_income_root and has_revenue:
             return "income_statement"
 
     if "cashflow" in name:
         return "cash_flow_statement"
 
-    if ("balancesheet" in name or "financialposition" in name
-            or "financialcondition" in name):
+    if (
+        "balancesheet" in name
+        or "financialposition" in name
+        or "financialcondition" in name
+    ):
         return "balance_sheet"
 
     if "equity" in name and any(
-        w in name for w in (
+        word in name for word in (
             "statement", "statements", "changes",
             "stockholder", "shareholder", "investment",
         )
@@ -317,10 +379,10 @@ def classify_role(role: str, role_rows: list[dict] | None = None) -> str:
         return "equity_statement"
 
     has_statement_word = any(
-        w in name for w in ("statement", "statements", "consolidated")
+        word in name for word in ("statement", "statements", "consolidated")
     )
     has_income_word = any(
-        w in name for w in ("income", "operations", "earnings")
+        word in name for word in ("income", "operations", "earnings")
     )
 
     non_statement_income = (
@@ -331,12 +393,12 @@ def classify_role(role: str, role_rows: list[dict] | None = None) -> str:
     )
 
     if has_statement_word and has_income_word and not any(
-        m in name for m in non_statement_income
+        marker in name for marker in non_statement_income
     ):
         if "comprehensiveincome" in name:
             stripped = name.replace("comprehensiveincome", "")
             if any(
-                w in stripped for w in ("income", "operations", "earnings")
+                word in stripped for word in ("income", "operations", "earnings")
             ):
                 return "income_statement"
             return "comprehensive_income_statement"
@@ -348,6 +410,7 @@ def classify_role(role: str, role_rows: list[dict] | None = None) -> str:
 
     return "other"
 
+
 def is_structural_concept(concept: str) -> bool:
     local_name = concept.split(":", 1)[-1]
     return local_name.endswith(
@@ -355,14 +418,21 @@ def is_structural_concept(concept: str) -> bool:
     )
 
 
-def parse_pre_xml(
+def parse_presentation_xml(
     xml_text: str,
     ticker: str,
     cik: str,
     filing: dict,
     index_url: str,
-    pre_url: str,
+    source_url: str,
+    source_type: str,
 ) -> list[dict]:
+    """
+    Parse presentationLink relationships from either _pre.xml or an XSD.
+
+    Both sources use the XBRL linkbase presentationLink structure. The
+    source_type field records which archive document supplied the network.
+    """
     root = ET.fromstring(xml_text)
     rows = []
 
@@ -374,7 +444,9 @@ def parse_pre_xml(
         for locator in presentation_link.findall(LINK_LOC):
             label = locator.get(XLINK_LABEL) or ""
             if label:
-                locators[label] = concept_from_href(locator.get(XLINK_HREF) or "")
+                locators[label] = concept_from_href(
+                    locator.get(XLINK_HREF) or ""
+                )
 
         for arc in presentation_link.findall(LINK_ARC):
             if "parent-child" not in (arc.get(XLINK_ARCROLE) or ""):
@@ -393,10 +465,13 @@ def parse_pre_xml(
                 "filing_date": filing["filing_date"],
                 "filing_accession": filing["accession"],
                 "filing_index_url": index_url,
-                "pre_xml_url": pre_url,
+                "pre_xml_url": source_url,
+                "source_type": source_type,
                 "statement_role": role,
                 "statement_category": "",
-                "parent_concept": locators.get(arc.get(XLINK_FROM) or "", ""),
+                "parent_concept": locators.get(
+                    arc.get(XLINK_FROM) or "", ""
+                ),
                 "child_concept": child_concept,
                 "sibling_order": arc.get("order") or "",
                 "preferred_label_role": preferred.rsplit("/", 1)[-1],
@@ -416,46 +491,59 @@ def parse_pre_xml(
 def write_detail(rows: list[dict], path: Path) -> None:
     fields = [
         "ticker", "cik", "form", "filing_date", "filing_accession",
-        "filing_index_url", "pre_xml_url", "statement_role",
-        "statement_category", "parent_concept", "child_concept",
-        "sibling_order", "preferred_label_role", "is_structural",
+        "filing_index_url", "pre_xml_url", "source_type",
+        "statement_role", "statement_category", "parent_concept",
+        "child_concept", "sibling_order", "preferred_label_role",
+        "is_structural",
     ]
-    with path.open("w", newline="") as handle:
+
+    with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         writer.writerows(rows)
 
 
 def write_frequency(rows: list[dict], path: Path) -> None:
-    """Aggregate by (concept, statement_category) so disclosure hits don't
-    masquerade as primary-statement evidence."""
-    groups = defaultdict(lambda: {"tickers": set(), "roles": set(), "example": None})
+    """Aggregate by concept, category, and structural status."""
+    groups = defaultdict(
+        lambda: {"tickers": set(), "roles": set(), "example": None}
+    )
 
     for row in rows:
-        key = (row["child_concept"], row["statement_category"], row["is_structural"])
+        key = (
+            row["child_concept"],
+            row["statement_category"],
+            row["is_structural"],
+        )
         group = groups[key]
         group["tickers"].add(row["ticker"])
         group["roles"].add(row["statement_role"])
+
         if group["example"] is None:
             group["example"] = row
 
     sorted_groups = sorted(
         groups.items(),
-        key=lambda item: (-len(item[1]["tickers"]), item[0][1], item[0][0]),
+        key=lambda item: (
+            -len(item[1]["tickers"]),
+            item[0][1],
+            item[0][0],
+        ),
     )
 
     fields = [
         "concept", "statement_category", "is_structural", "company_count",
         "tickers", "statement_roles", "example_ticker", "example_accession",
-        "example_filing_index_url", "example_pre_xml_url",
+        "example_filing_index_url", "example_pre_xml_url", "source_type",
     ]
 
-    with path.open("w", newline="") as handle:
+    with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
 
         for (concept, category, structural), group in sorted_groups:
             example = group["example"]
+
             writer.writerow({
                 "concept": concept,
                 "statement_category": category,
@@ -467,15 +555,18 @@ def write_frequency(rows: list[dict], path: Path) -> None:
                 "example_accession": example["filing_accession"],
                 "example_filing_index_url": example["filing_index_url"],
                 "example_pre_xml_url": example["pre_xml_url"],
+                "source_type": example["source_type"],
             })
 
 
 def write_status(rows: list[dict], path: Path) -> None:
     fields = [
         "ticker", "cik", "status", "note", "filing_accession",
-        "primary_document", "pre_xml_url", "presentation_rows",
+        "primary_document", "pre_xml_url", "source_type",
+        "presentation_rows",
     ]
-    with path.open("w", newline="") as handle:
+
+    with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         writer.writerows(rows)
@@ -485,18 +576,27 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--file", default=str(TICKERS_FILE))
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=RUNLOGS,
+        help="Directory for the three output CSVs (default: existing runlogs).",
+    )
     args = parser.parse_args()
 
     user_agent = get_user_agent()
     session = make_session(user_agent)
     client = SECEdgarClient(user_agent=user_agent)
 
-    RUNLOGS.mkdir(parents=True, exist_ok=True)
+    output_dir = args.output_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     all_rows = []
     status_rows = []
     tickers = load_tickers(Path(args.file), args.limit)
+
     print(f"Loaded {len(tickers)} tickers from {args.file}")
+    print(f"Output directory: {output_dir}")
 
     for index, ticker in enumerate(tickers, start=1):
         print(f"[{index}/{len(tickers)}] {ticker}")
@@ -507,41 +607,90 @@ def main() -> None:
                 cik = client.resolve_cik(ticker)
 
             filing = get_filing_for_ticker(session, cik, ticker)
+
             if filing is None:
                 print("  NO_10K")
                 status_rows.append({
-                    "ticker": ticker, "cik": cik, "status": "NO_10K",
+                    "ticker": ticker,
+                    "cik": cik,
+                    "status": "NO_10K",
                     "note": "No 10-K or 10-K/A in recent submissions",
-                    "filing_accession": "", "primary_document": "",
-                    "pre_xml_url": "", "presentation_rows": 0,
+                    "filing_accession": "",
+                    "primary_document": "",
+                    "pre_xml_url": "",
+                    "source_type": "NONE",
+                    "presentation_rows": 0,
                 })
                 continue
 
-            pre_url = find_pre_xml_url(
-                session, cik, filing["accession"], filing["primary_document"]
+            source_url, source_type = find_presentation_source(
+                session,
+                cik,
+                filing["accession"],
+                filing["primary_document"],
             )
-            if pre_url is None:
-                print("  NO_PRE_XML")
+
+            if source_url is None:
+                print("  NO_PRESENTATION")
                 status_rows.append({
-                    "ticker": ticker, "cik": cik, "status": "NO_PRE_XML",
-                    "note": "No _pre.xml in archive directory",
+                    "ticker": ticker,
+                    "cik": cik,
+                    "status": "NO_PRESENTATION",
+                    "note": "No standalone _pre.xml or matching XSD found",
                     "filing_accession": filing["accession"],
                     "primary_document": filing["primary_document"],
-                    "pre_xml_url": "", "presentation_rows": 0,
+                    "pre_xml_url": "",
+                    "source_type": "NONE",
+                    "presentation_rows": 0,
                 })
                 continue
 
-            xml_text = load_pre_xml(session, ticker, filing["accession"], pre_url)
+            xml_text = load_presentation_source(
+                session,
+                ticker,
+                filing["accession"],
+                source_url,
+                source_type,
+            )
+
             index_url = filing_index_url(cik, filing["accession"])
-            rows = parse_pre_xml(xml_text, ticker, cik, filing, index_url, pre_url)
+            rows = parse_presentation_xml(
+                xml_text,
+                ticker,
+                cik,
+                filing,
+                index_url,
+                source_url,
+                source_type,
+            )
+
             all_rows.extend(rows)
 
-            print(f"  PARSED: {len(rows)} presentation arcs")
+            if rows:
+                print(
+                    f"  PARSED ({source_type}): "
+                    f"{len(rows)} presentation arcs"
+                )
+                status = "PARSED"
+                note = ""
+            else:
+                print(f"  NO_PRESENTATION_LINKS ({source_type})")
+                status = "NO_PRESENTATION"
+                note = (
+                    f"{source_type} source found, but it contained no "
+                    "presentationLink relationships"
+                )
+
             status_rows.append({
-                "ticker": ticker, "cik": cik, "status": "PARSED", "note": "",
+                "ticker": ticker,
+                "cik": cik,
+                "status": status,
+                "note": note,
                 "filing_accession": filing["accession"],
                 "primary_document": filing["primary_document"],
-                "pre_xml_url": pre_url, "presentation_rows": len(rows),
+                "pre_xml_url": source_url,
+                "source_type": source_type,
+                "presentation_rows": len(rows),
             })
 
             time.sleep(0.15)
@@ -549,21 +698,47 @@ def main() -> None:
         except Exception as error:
             print(f"  ERROR: {error}")
             status_rows.append({
-                "ticker": ticker, "cik": cik or "", "status": "ERROR",
-                "note": str(error), "filing_accession": "",
-                "primary_document": "", "pre_xml_url": "", "presentation_rows": 0,
+                "ticker": ticker,
+                "cik": cik or "",
+                "status": "ERROR",
+                "note": str(error),
+                "filing_accession": "",
+                "primary_document": "",
+                "pre_xml_url": "",
+                "source_type": "NONE",
+                "presentation_rows": 0,
             })
 
-    detail_path = RUNLOGS / "presentation_rows.csv"
-    frequency_path = RUNLOGS / "presentation_tag_frequency.csv"
-    status_path = RUNLOGS / "presentation_harvest_status.csv"
+    detail_path = output_dir / "presentation_rows.csv"
+    frequency_path = output_dir / "presentation_tag_frequency.csv"
+    status_path = output_dir / "presentation_harvest_status.csv"
 
     write_detail(all_rows, detail_path)
     write_frequency(all_rows, frequency_path)
     write_status(status_rows, status_path)
 
     parsed = sum(row["status"] == "PARSED" for row in status_rows)
+    embedded = sum(
+        row.get("source_type") == "EMBEDDED_XSD"
+        and row["status"] == "PARSED"
+        for row in status_rows
+    )
+    standalone = sum(
+        row.get("source_type") == "PRE_XML"
+        and row["status"] == "PARSED"
+        for row in status_rows
+    )
+    missing = sum(
+        row["status"] == "NO_PRESENTATION"
+        for row in status_rows
+    )
+    errors = sum(row["status"] == "ERROR" for row in status_rows)
+
     print(f"\nParsed filings: {parsed}/{len(status_rows)}")
+    print(f"  Standalone _pre.xml: {standalone}")
+    print(f"  Embedded XSD:        {embedded}")
+    print(f"  No presentation:     {missing}")
+    print(f"  Errors:              {errors}")
     print(f"Wrote {detail_path} ({len(all_rows)} rows)")
     print(f"Wrote {frequency_path}")
     print(f"Wrote {status_path}")

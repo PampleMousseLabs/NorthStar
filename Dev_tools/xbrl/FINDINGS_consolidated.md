@@ -298,7 +298,34 @@ Investigate the 13 `NO_PRESENTATION` cases and classify the cause for each. Dist
 
 ### Priority 3 — Determine whether `PARTIAL` statements are usable
 
-For the 54 partial cases in the November 14 result, identify which checks were skipped and why. Prioritize whether the missing check affects major valuation metrics (revenue, operating income, pretax income, tax, net income) or only ancillary detail. Report completeness separately from arithmetic reconciliation.
+**Status as of 2026-11-14: Initial classification of all 54 `PARTIAL` cases completed.** The diagnostic reproduced the skipped-check classification from the local filing facts, presentation data, and calculation linkbases. All 54 cases had the required local inputs; this was an offline diagnostic, not a new SEC harvest.
+
+Across the 54 filings, the diagnostic identified 80 skipped subtotal checks:
+
+| Skip classification | Checks | Interpretation |
+|---|---:|---|
+| Missing component; remaining components reconcile | 21 | Candidate redundant, inapplicable, or differently tagged component; not automatically safe to ignore |
+| Missing component; remaining components do not reconcile | 55 | Unresolved difference; may be material and requires concept-level investigation |
+| Reported subtotal fact missing | 4 | Subtotal itself unavailable for evaluation |
+| **Total** | **80** | |
+
+The most frequent missing components were `CostOfGoodsAndServicesSold` (23 checks) and `RevenueFromContractWithCustomerExcludingAssessedTax` (10 checks). Other examined clusters included `OtherCostAndExpenseOperating` (4) and `InterestExpenseNonoperating` (3).
+
+Key observations:
+
+- Missing COGS and customer-contract revenue tags are often issuer- or industry-specific presentation and tagging issues. The examined revenue cases included insurance, financial services, and energy issuers with materially different revenue structures. CVS, for example, reported the combined concept `PremiumsEarnedNetAndRevenueFromContractWithCustomerExcludingAssessedTax` rather than the exact expected customer-contract revenue concept.
+- No universal replacement concept was established for either COGS or customer-contract revenue. Concepts such as `CostOfRevenue` and `NonInvestmentRevenue` may be relevant in individual filings, but their presence alone does not establish equivalence to a missing calculation component.
+- Some skipped checks reconcile without the missing component, as in AFL's `OperatingExpenses` check. This is evidence for possible redundant or inapplicable components, not proof that the component can be globally excluded.
+- Other cases leave large residuals, including APO, EXC, and F for operating expenses. These cannot be treated as harmless skips.
+- Negative or otherwise implausible residuals in some interest-expense checks demonstrate that residual arithmetic alone cannot establish a substitute concept or validate a calculation relationship.
+
+**Interpretation:** `PARTIAL` is heterogeneous. It includes potentially benign missing components, unresolved material differences, and unavailable subtotal facts. The 21 checks that reconcile without the missing component are not equivalent to 21 proven harmless omissions. Likewise, the 55 unreconciled checks do not prove economic incompleteness: alternate concepts and issuer-specific tagging may explain some cases.
+
+The diagnostic does not yet establish whether every `PARTIAL` statement contains complete and reliable revenue, operating income, pretax income, tax, and net income data. Therefore, `PARTIAL` must remain distinct from `RECONCILES` and must not be described as valuation-ready.
+
+**Decision:** Treat the initial classification objective as complete. Do not apply blanket aliases or globally suppress missing-component checks. Any future mapping should be supported by filing-specific presentation, calculation, and fact evidence, with material valuation metrics evaluated separately.
+
+**Next action:** Defer exhaustive issuer-by-issuer review. Revisit individual `PARTIAL` cases only when developing and testing a specific concept mapping or when validating metric-level completeness.
 
 ### Priority 4 — Re-run and freeze a reproducible IS benchmark
 
@@ -394,6 +421,22 @@ Use the following template for future updates. Keep entries concise and link to 
 
 **Next action:** Investigate the remaining `NO_PRESENTATION`, `PARTIAL`, and `FAIL` cases with targeted tests. Keep reconstruction-only reruns distinct from fresh-harvest benchmarks.
 
+### 2026-11-14 — Classification of the 54 PARTIAL income-statement cases
+
+**Question:** Are the skipped checks in the 54 `PARTIAL` cases likely to represent harmless omissions, issuer-specific tagging differences, or unresolved subtotal differences?
+
+**Method:** Used the November 14 batch summary and existing local filing-fact, presentation, and calculation-linkbase datasets. Reproduced the relevant calculation checks and classified 80 skipped subtotal checks across all 54 `PARTIAL` filings. Follow-up diagnostics examined the most frequent missing components and selected issuer cases. No fresh SEC harvest or benchmark rerun was performed.
+
+**Result:** Of the 80 skipped checks, 21 had remaining components that reconciled to the reported subtotal, 55 had remaining components that did not reconcile, and 4 lacked the reported subtotal fact. The most frequent missing components were `CostOfGoodsAndServicesSold` (23 checks) and `RevenueFromContractWithCustomerExcludingAssessedTax` (10). Additional targeted review examined `OtherCostAndExpenseOperating` (4) and `InterestExpenseNonoperating` (3).
+
+The COGS review found no universal alternate concept across the examined cases. The revenue review found industry-specific reporting patterns, including insurance and premium concepts, interest-income concepts, and energy-related sales concepts. CVS reported a combined premium/customer-contract revenue concept. Operating-expense examples ranged from an exact reconciliation without the missing component (AFL) to material residuals (APO, EXC, and F).
+
+**Interpretation:** `PARTIAL` is not a homogeneous quality category. A missing component can be redundant or inapplicable in one filing and material in another. A nonzero or negative residual does not by itself establish the correct replacement concept. The diagnostic classifies skipped checks; it does not prove metric-level completeness or valuation readiness.
+
+**Decision:** Close the initial classification objective without applying blanket aliases or changing reconstruction logic. Preserve `PARTIAL` as a distinct status. Require filing-specific evidence before accepting alternate concepts or suppressing checks.
+
+**Next action:** Defer exhaustive issuer-by-issuer review. Revisit individual cases when testing a specific mapping or validating metric-level completeness.
+
 ### YYYY-MM-DD — Short experiment / milestone title
 
 **Question:** What uncertainty was this experiment intended to resolve?
@@ -416,3 +459,4 @@ Use the following template for future updates. Keep entries concise and link to 
 - **2026-11-12:** Recorded the diagnostic review of all 15 failed subtotal checks across 11 filings; documented the HST calculation-role fallback defect, linked discrepancy patterns, missing-component skips, and remaining uncertainties. Preserved the original 2026-10-08 benchmark results.
 - **2026-11-12:** Corrected calculation-role mismatch handling in both income-statement reconstruction runners; added focused role-scope regression checks and documented the HST evidence. No benchmark rerun was performed.
 - **2026-11-14:** Recorded the structural presentation-role classifier and the 250-company reconstruction rerun. Updated current benchmark counts and denominator while retaining the October 8 results as historical evidence. The rerun reused existing datasets and cache; it was not a fresh SEC data harvest.
+- **2026-11-14:** Classified 80 skipped subtotal checks across all 54 `PARTIAL` income-statement cases. Documented missing-component patterns, issuer-specific tagging differences, and the distinction between potentially benign omissions and unresolved residuals. Closed the initial classification objective without introducing blanket concept aliases or treating `PARTIAL` as valuation-ready.

@@ -96,9 +96,9 @@ def load_filing_facts(ticker):
     raw_acc = rows[0].get("filing_accession") if rows else path.stem.split("_")[-1]
     return raw_acc, rows
 
-def load_presentation_index():
+def load_presentation_index(presentation_path):
     index = defaultdict(list)
-    p = RUNLOGS / "presentation_rows.csv"
+    p = Path(presentation_path)
     if not p.exists():
         return index
     with p.open(newline="", encoding="utf-8") as h:
@@ -270,6 +270,8 @@ def main():
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--file", type=str, default=str(DEFAULT_TICKERS))
     parser.add_argument("--tolerance", type=float, default=2_000_000.0)
+    parser.add_argument("--presentation-rows", type=str, default=str(RUNLOGS / "presentation_rows.csv"))
+    parser.add_argument("--output", type=str, default=str(OUT))
     args = parser.parse_args()
 
     tickers_path = Path(args.file)
@@ -281,7 +283,9 @@ def main():
 
     ua = get_user_agent()
     session = make_session(ua)
-    pres_index = load_presentation_index()
+    presentation_path = Path(args.presentation_rows)
+    output_path = Path(args.output)
+    pres_index = load_presentation_index(presentation_path)
     rows = []
 
     for idx, ticker in enumerate(tickers, start=1):
@@ -387,7 +391,8 @@ def main():
             "filing_index_url": filing_index_url(cik, acc),
         })
 
-    with OUT.open("w", newline="", encoding="utf-8") as h:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", newline="", encoding="utf-8") as h:
         w = csv.DictWriter(h, fieldnames=["ticker","status","filing_accession","period_end","totals_checked","OK","FAIL","SKIP","NO_CALC","missing","filing_index_url"])
         w.writeheader()
         w.writerows(rows)
@@ -396,7 +401,7 @@ def main():
     print("\nBatch filing-level summary")
     for s, n in by_status.most_common():
         print(f"  {s:<20} {n}")
-    print(f"\nWrote {OUT}")
+    print(f"\nWrote {output_path}")
 
 if __name__ == "__main__":
     main()
