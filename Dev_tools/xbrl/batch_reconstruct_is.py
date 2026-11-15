@@ -108,6 +108,30 @@ def load_presentation_index(presentation_path):
                 index[(r["ticker"], clean_acc)].append(r)
     return index
 
+def load_calculation_index(calculation_path):
+    index = defaultdict(list)
+    p = Path(calculation_path)
+    if not p.exists():
+        return index
+
+    with p.open(newline="", encoding="utf-8") as h:
+        for row in csv.DictReader(h):
+            clean_acc = row["filing_accession"].replace("-", "")
+            try:
+                weight = float(row.get("weight") or "1")
+            except (TypeError, ValueError):
+                weight = 1.0
+
+            index[(row["ticker"], clean_acc)].append((
+                row["calculation_role"],
+                row["parent_concept"],
+                row["child_concept"],
+                weight,
+            ))
+
+    return index
+
+
 def select_role(rows):
     """
     Prefer a true income-statement role. Fall back to a comprehensive-income
@@ -271,6 +295,7 @@ def main():
     parser.add_argument("--file", type=str, default=str(DEFAULT_TICKERS))
     parser.add_argument("--tolerance", type=float, default=2_000_000.0)
     parser.add_argument("--presentation-rows", type=str, default=str(RUNLOGS / "presentation_rows.csv"))
+    parser.add_argument("--calculation-rows", type=str, default=str(RUNLOGS / "calculation_rows.csv"))
     parser.add_argument("--output", type=str, default=str(OUT))
     args = parser.parse_args()
 
@@ -284,8 +309,10 @@ def main():
     ua = get_user_agent()
     session = make_session(ua)
     presentation_path = Path(args.presentation_rows)
+    calculation_path = Path(args.calculation_rows)
     output_path = Path(args.output)
     pres_index = load_presentation_index(presentation_path)
+    calculation_index = load_calculation_index(calculation_path)
     rows = []
 
     for idx, ticker in enumerate(tickers, start=1):
@@ -309,26 +336,45 @@ def main():
             rows.append({"ticker": ticker, "status": "NO_PERIOD", "filing_accession": acc, "period_end": "", "totals_checked": 0, "OK": 0, "FAIL": 0, "SKIP": 0, "NO_CALC": 0, "missing": "", "filing_index_url": filing_index_url(cik, acc)})
             continue
         values = build_value_map(fact_rows, period_end)
-        cal_name = find_cal_name(session, cik, acc, expected_cal_name(fact_rows))
         calc_map = {}
-        if cal_name:
-            try:
-                cal_text = load_cal_xml(session, ticker, cik, acc, cal_name)
-                raw_arcs = parse_calc_raw(cal_text)
-                calc_role = select_calc_role(raw_arcs, role)
-                if calc_role is None:
-                    calc_map = {}
-                    print(
-                        "  cal role mismatch: no calculation network matches "
-                        "the presentation role; calculation-linkbase checks unavailable"
+        raw_arcs = calculation_index.get((ticker, clean_acc), [])
+
+        if raw_arcs:
+            calc_source = "embedded XSD"
+        else:
+            calc_source = ""
+            cal_name = find_cal_name(
+                session, cik, acc, expected_cal_name(fact_rows)
+            )
+            if cal_name:
+                try:
+                    cal_text = load_cal_xml(
+                        session, ticker, cik, acc, cal_name
                     )
-                else:
-                    from_is_total = choose_calc_direction(
-                        raw_arcs, values, args.tolerance, calc_role
-                    )
-                    calc_map = build_calc_map(raw_arcs, from_is_total, calc_role)
-            except Exception as e:
-                print(f"  cal load failed: {e}")
+                    raw_arcs = parse_calc_raw(cal_text)
+                    calc_source = "standalone _cal.xml"
+                except Exception as e:
+                    print(f"  cal load failed: {e}")
+
+        if raw_arcs:
+            calc_role = select_calc_role(raw_arcs, role)
+            if calc_role is None:
+                print(
+                    f"  {calc_source}: no calculation network matches "
+                    "the selected presentation role"
+                )
+            else:
+                from_is_total = choose_calc_direction(
+                    raw_arcs, values, args.tolerance, calc_role
+                )
+                calc_map = build_calc_map(
+                    raw_arcs, from_is_total, calc_role
+                )
+                print(
+                    f"  Calculation source: {calc_source}; "
+                    f"{len(calc_map)} parent concepts in selected role"
+                )
+
         time.sleep(0.15)
 
         counts = Counter()

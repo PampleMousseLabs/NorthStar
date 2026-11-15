@@ -38,6 +38,8 @@ XLINK_NS = "http://www.w3.org/1999/xlink"
 
 LINK_PRESENTATION = f"{{{LINK_NS}}}presentationLink"
 LINK_ARC = f"{{{LINK_NS}}}presentationArc"
+LINK_CALCULATION = f"{{{LINK_NS}}}calculationLink"
+LINK_CALC_ARC = f"{{{LINK_NS}}}calculationArc"
 LINK_LOC = f"{{{LINK_NS}}}loc"
 
 XLINK_ROLE = f"{{{XLINK_NS}}}role"
@@ -488,6 +490,79 @@ def parse_presentation_xml(
     return rows
 
 
+def parse_calculation_xml(
+    xml_text: str,
+    ticker: str,
+    cik: str,
+    filing: dict,
+    index_url: str,
+    source_url: str,
+    source_type: str,
+) -> list[dict]:
+    """Extract weighted summation-item arcs from calculationLink networks."""
+    root = ET.fromstring(xml_text)
+    rows = []
+
+    for calculation_link in root.iter(LINK_CALCULATION):
+        role = calculation_link.get(XLINK_ROLE) or ""
+        locators = {}
+
+        for locator in calculation_link.findall(LINK_LOC):
+            label = locator.get(XLINK_LABEL) or ""
+            if label:
+                locators[label] = concept_from_href(
+                    locator.get(XLINK_HREF) or ""
+                )
+
+        for arc in calculation_link.findall(LINK_CALC_ARC):
+            if "summation-item" not in (
+                arc.get(XLINK_ARCROLE) or ""
+            ):
+                continue
+
+            parent = locators.get(arc.get(XLINK_FROM) or "", "")
+            child = locators.get(arc.get(XLINK_TO) or "", "")
+            if not parent or not child:
+                continue
+
+            try:
+                weight = float(arc.get("weight", "1"))
+            except (TypeError, ValueError):
+                weight = 1.0
+
+            rows.append({
+                "ticker": ticker,
+                "cik": cik,
+                "form": filing["form"],
+                "filing_date": filing["filing_date"],
+                "filing_accession": filing["accession"],
+                "filing_index_url": index_url,
+                "source_url": source_url,
+                "source_type": source_type,
+                "calculation_role": role,
+                "parent_concept": parent,
+                "child_concept": child,
+                "weight": weight,
+                "arc_order": arc.get("order") or "",
+            })
+
+    return rows
+
+
+def write_calculation_detail(rows: list[dict], path: Path) -> None:
+    fields = [
+        "ticker", "cik", "form", "filing_date", "filing_accession",
+        "filing_index_url", "source_url", "source_type",
+        "calculation_role", "parent_concept", "child_concept",
+        "weight", "arc_order",
+    ]
+
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def write_detail(rows: list[dict], path: Path) -> None:
     fields = [
         "ticker", "cik", "form", "filing_date", "filing_accession",
@@ -592,6 +667,7 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     all_rows = []
+    all_calculation_rows = []
     status_rows = []
     tickers = load_tickers(Path(args.file), args.limit)
 
@@ -666,11 +742,29 @@ def main() -> None:
 
             all_rows.extend(rows)
 
+            calculation_rows = []
+            if source_type == "EMBEDDED_XSD":
+                calculation_rows = parse_calculation_xml(
+                    xml_text,
+                    ticker,
+                    cik,
+                    filing,
+                    index_url,
+                    source_url,
+                    source_type,
+                )
+                all_calculation_rows.extend(calculation_rows)
+
             if rows:
                 print(
                     f"  PARSED ({source_type}): "
                     f"{len(rows)} presentation arcs"
                 )
+                if source_type == "EMBEDDED_XSD":
+                    print(
+                        f"  Calculation arcs: "
+                        f"{len(calculation_rows)}"
+                    )
                 status = "PARSED"
                 note = ""
             else:
@@ -712,10 +806,12 @@ def main() -> None:
     detail_path = output_dir / "presentation_rows.csv"
     frequency_path = output_dir / "presentation_tag_frequency.csv"
     status_path = output_dir / "presentation_harvest_status.csv"
+    calculation_path = output_dir / "calculation_rows.csv"
 
     write_detail(all_rows, detail_path)
     write_frequency(all_rows, frequency_path)
     write_status(status_rows, status_path)
+    write_calculation_detail(all_calculation_rows, calculation_path)
 
     parsed = sum(row["status"] == "PARSED" for row in status_rows)
     embedded = sum(
@@ -740,6 +836,10 @@ def main() -> None:
     print(f"  No presentation:     {missing}")
     print(f"  Errors:              {errors}")
     print(f"Wrote {detail_path} ({len(all_rows)} rows)")
+    print(
+        f"Wrote {calculation_path} "
+        f"({len(all_calculation_rows)} rows)"
+    )
     print(f"Wrote {frequency_path}")
     print(f"Wrote {status_path}")
 
