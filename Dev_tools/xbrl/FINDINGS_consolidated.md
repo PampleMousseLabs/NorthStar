@@ -3,8 +3,8 @@
 > **Document type:** Living research log and interim findings record
 > **Project:** NorthStar — SEC XBRL research
 > **Status:** Research only; not approved as a production NorthStar data source
-> **Latest recorded milestone:** 250-company income-statement benchmark, 15-failure diagnostic review, and calculation-role mismatch correction
-> **Last updated:** 2026-11-12
+> **Latest recorded milestone:** Structural presentation-role classification and 250-company income-statement reconstruction rerun
+> **Last updated:** 2026-11-14
 > **Scope currently tested:** Income statements (IS) only
 
 This document records what has been tested, what the evidence supports, what remains uncertain, and how the research direction has changed. Add dated entries as new experiments finish. Preserve older results as history rather than overwriting them when a new sample or method supersedes them.
@@ -17,31 +17,34 @@ This document records what has been tested, what the evidence supports, what rem
 
 **Filing-level SEC XBRL is a promising candidate for reconstructing as-filed income statements, but it is not yet production-ready.**
 
-The latest recorded 250-company batch found no arithmetic reconciliation failure in 224 of 236 filings for which facts and presentation inputs were sufficiently available to run the subtotal checks. Eleven filings failed at least one identified subtotal check, and one filing had no subtotal checks identified. Thirteen filings lacked a usable harvested presentation and one had no usable facts.
+The original 2026-10-08 benchmark and its 2026-11-12 diagnostic review remain the historical baseline. On 2026-11-14, the 250-company income-statement reconstruction was rerun after the structural presentation-role classifier was committed. The rerun produced 169 `RECONCILES`, 54 `PARTIAL`, 9 `FAIL`, 13 `NO_PRESENTATION`, 1 `NO_FACTS`, and 4 `NO_TOTALS`.
 
-A follow-up diagnostic review on 2026-11-12 examined all 15 failed subtotal checks across the 11 `FAIL` tickers. The five cases without individual detail files were analyzed using the existing batch reconstruction logic and cached filing facts, presentation rows, and calculation linkbases. The six earlier cases were reviewed using existing individual reconstruction outputs; that runner uses separate logic, so its detailed amounts are diagnostic evidence rather than a claim that both runners are identical. The review identified a clear calculation-network selection defect in HST and several linked or subtotal discrepancies, but did not establish a reusable root cause for every failure. See Priority 1 and the 2026-11-12 research-log entry.
+Among the 236 filings with facts and presentation inputs available for subtotal evaluation, 223 were classified as `RECONCILES` or `PARTIAL` (`169 RECONCILES + 54 PARTIAL`), or **94.5%**. The remaining 13 cases (9 `FAIL` and 4 `NO_TOTALS`) are excluded from that numerator. `PARTIAL` does not mean fully reconciled or valuation-ready.
 
-The headline **94.9%** is the share of the 236-member tested group that did not receive a `FAIL` result (`224 / 236`). It includes `PARTIAL` cases and the one `NO_TOTALS` case; it does **not** mean that 94.9% of statements fully reconciled or that 94.9% are valuation-ready.
+Compared with the November 13 post-fix baseline, 249 companies were unchanged. EVRG moved from `NO_TOTALS` to `PARTIAL`: 12 totals were checked, 11 passed, and 1 was skipped. The remaining skip was associated with an extension concept absent from the filing instance. The `RECONCILES` count remained 169, and no other company-level status changed.
+
+The November 14 run reused existing local presentation and filing-fact datasets and the mounted TV-box cache. It was a reconstruction rerun, not a fresh 250-company SEC data harvest. See the 2026-11-14 research-log entry for the method and limitations.
 
 ### Latest batch at a glance
 
 | Result classification | Filings | Meaning |
 |---|---:|---|
 | `RECONCILES` | 169 | All detected subtotal checks reconciled to the filing's calculation linkbase |
-| `PARTIAL` | 55 | No detected arithmetic failures, but one or more checks were skipped because a component fact or usable calculation arc was missing |
-| `FAIL` | 11 | At least one identified subtotal disagreed with the filing's calculation linkbase |
+| `PARTIAL` | 54 | No detected arithmetic failures, but one or more checks were skipped because a component fact or usable calculation arc was missing |
+| `FAIL` | 9 | At least one identified subtotal disagreed with the filing's calculation linkbase |
 | `NO_PRESENTATION` | 13 | Facts were available, but the current process did not harvest a usable income-statement presentation |
 | `NO_FACTS` | 1 | Filing-fact harvesting failed or did not yield usable annual filing facts |
-| `NO_TOTALS` | 1 | Facts and presentation were present, but no subtotal checks were identified |
+| `NO_TOTALS` | 4 | Facts and presentation were present, but no subtotal checks were identified |
 | **Total sample** | **250** | All sample members accounted for |
 
 **Calculation notes**
 
 - Group with facts/presentation available for subtotal evaluation: `250 - 13 NO_PRESENTATION - 1 NO_FACTS = 236`.
-- No `FAIL` result within that group: `169 RECONCILES + 55 PARTIAL = 224`, or `224 / 236 = 94.9%`.
-- `FAIL` rate within that group: `11 / 236 = 4.7%`.
-- `NO_TOTALS`: `1 / 236 = 0.4%`.
+- `RECONCILES` or `PARTIAL`: `169 + 54 = 223`, or `223 / 236 = 94.5%`.
+- `FAIL` rate within that group: `9 / 236 = 3.8%`.
+- `NO_TOTALS`: `4 / 236 = 1.7%`.
 - These classifications measure pipeline/reconciliation outcomes, not full accounting correctness, completeness of every line item, or suitability for valuation.
+- The November 13 baseline was 169 `RECONCILES`, 53 `PARTIAL`, 9 `FAIL`, 13 `NO_PRESENTATION`, 1 `NO_FACTS`, and 5 `NO_TOTALS`.
 
 ---
 
@@ -182,7 +185,7 @@ At that stage, the six reported failures were AMZN, AEP, AON, BAC, COF, and CVNA
 
 A separate 100-company reconstruction milestone recorded 58 reconciled, 18 partial, 6 failed, and 18 without presentation. Treat these figures as a distinct run/method milestone; do not merge the two 100-company result tables unless their run artifacts establish that they are directly comparable.
 
-### 5.2 Latest 250-company sample — 2026-10-08
+### 5.2 Historical 250-company sample — 2026-10-08
 
 The current headline is the six-category result table in Section 1. The sample's documented exception lists are:
 
@@ -295,17 +298,20 @@ Investigate the 13 `NO_PRESENTATION` cases and classify the cause for each. Dist
 
 ### Priority 3 — Determine whether `PARTIAL` statements are usable
 
-For the 55 partial cases, identify which checks were skipped and why. Prioritize whether the missing check affects major valuation metrics (revenue, operating income, pretax income, tax, net income) or only ancillary detail. Report completeness separately from arithmetic reconciliation.
+For the 54 partial cases in the November 14 result, identify which checks were skipped and why. Prioritize whether the missing check affects major valuation metrics (revenue, operating income, pretax income, tax, net income) or only ancillary detail. Report completeness separately from arithmetic reconciliation.
 
 ### Priority 4 — Re-run and freeze a reproducible IS benchmark
 
-After fixes:
+**Status as of 2026-11-14: Reconstruction rerun completed after structural presentation-role classification.** The 250-company result is now recorded in Section 1 and the research log. This run reused existing local presentation and filing-fact datasets and the mounted TV-box cache; it was not a fresh SEC data harvest.
+
+For the next benchmark intended to measure broader harvest or pipeline coverage:
 
 - Use a documented, versioned ticker sample.
 - Record the commit hash and run command.
 - Preserve raw run logs and per-company outcomes.
-- Compare category counts and root causes with the current 250-company baseline.
+- Compare category counts and root causes with the November 13 and November 14 results.
 - Keep a clear denominator for every reported success rate.
+- Distinguish reconstruction-only reruns from fresh filing/presentation/fact harvesting.
 
 ### Priority 5 — Expand statement coverage only after IS findings are stable
 
@@ -335,6 +341,7 @@ This remains a research hypothesis, not a final production decision.
 | 2026-10-08 | Label derived parent net income explicitly; do not treat it as a directly reported fact | Active |
 | 2026-10-08 | Investigate failure causes and presentation-harvest gaps before expanding to BS/CFS | Next |
 | 2026-11-12 | If no calculation network matches the selected presentation role, use an empty calculation map; never merge unrelated networks | Implemented in both runners |
+| 2026-11-14 | Use structural presentation evidence to classify income-statement roles before relying on role-name heuristics | Implemented; benchmark rerun completed |
 
 Update this table only when a decision changes or a new durable decision is made.
 
@@ -373,6 +380,20 @@ Use the following template for future updates. Keep entries concise and link to 
 
 **Next action:** Continue investigating the remaining filing-level discrepancies and presentation coverage. Do not interpret unavailable calculation checks as successful reconciliations.
 
+### 2026-11-14 — Structural presentation-role classifier and 250-company rerun
+
+**Question:** Did the structural presentation-role classifier improve income-statement role selection across the existing 250-company sample without introducing company-level regressions?
+
+**Method:** After commit `d4c4864` (`Add structural XBRL statement classification`), reran `Dev_tools/xbrl/batch_reconstruct_is.py` against `Dev_tools/xbrl/tickers_250_usable.txt` with `--limit 250`. The run used the existing local presentation and filing-fact datasets and the mounted TV-box cache. It was a reconstruction rerun, not a fresh SEC filing or data harvest. The November 13 post-fix company-level summary was used as the comparison baseline.
+
+**Result:** The November 14 sample contained 169 `RECONCILES`, 54 `PARTIAL`, 9 `FAIL`, 13 `NO_PRESENTATION`, 1 `NO_FACTS`, and 4 `NO_TOTALS` (250 total). Relative to the November 13 baseline (169, 53, 9, 13, 1, and 5, respectively), 249 companies were unchanged. EVRG changed from `NO_TOTALS` to `PARTIAL`: 12 totals checked, 11 `OK`, and 1 `SKIP`. The remaining skip was associated with an extension concept absent from the filing instance. The fully reconciling count remained 169.
+
+**Interpretation:** The classifier changed statement-role selection sufficiently to enable additional EVRG checks. The comparison found no status changes among the other 249 companies. The result does not establish broader fresh-harvest coverage, a higher `RECONCILES` count, or valuation readiness. Among the 236 companies with facts and presentations available for subtotal evaluation, 223 were classified `RECONCILES` or `PARTIAL` (94.5%); the remaining 13 cases (9 `FAIL` and 4 `NO_TOTALS`) are excluded from that numerator.
+
+**Decision:** Record the November 14 reconstruction result as the current 250-company status while preserving the October 8 benchmark and November 12 diagnostic results as historical evidence. Do not describe this run as a fresh SEC data harvest.
+
+**Next action:** Investigate the remaining `NO_PRESENTATION`, `PARTIAL`, and `FAIL` cases with targeted tests. Keep reconstruction-only reruns distinct from fresh-harvest benchmarks.
+
 ### YYYY-MM-DD — Short experiment / milestone title
 
 **Question:** What uncertainty was this experiment intended to resolve?
@@ -394,3 +415,4 @@ Use the following template for future updates. Keep entries concise and link to 
 - **2026-10-08:** Consolidated duplicate 250-company result sections; established a single current-status summary; retained prior 100-company results as historical context; clarified the 94.9% denominator and distinction between `RECONCILES`, `PARTIAL`, and valuation readiness; organized open issues, decisions, and a repeatable research-log template.
 - **2026-11-12:** Recorded the diagnostic review of all 15 failed subtotal checks across 11 filings; documented the HST calculation-role fallback defect, linked discrepancy patterns, missing-component skips, and remaining uncertainties. Preserved the original 2026-10-08 benchmark results.
 - **2026-11-12:** Corrected calculation-role mismatch handling in both income-statement reconstruction runners; added focused role-scope regression checks and documented the HST evidence. No benchmark rerun was performed.
+- **2026-11-14:** Recorded the structural presentation-role classifier and the 250-company reconstruction rerun. Updated current benchmark counts and denominator while retaining the October 8 results as historical evidence. The rerun reused existing datasets and cache; it was not a fresh SEC data harvest.
