@@ -132,16 +132,47 @@ def load_calculation_index(calculation_path):
     return index
 
 
-def select_role(rows):
+def select_role(rows, raw_arcs=None):
     """
-    Prefer a true income-statement role. Fall back to a comprehensive-income
-    role only when the filing has none (combined statements labeled only as
-    'ComprehensiveIncome', e.g. ALLE, ATO).
+    Prefer an income-statement presentation role with a matching calculation
+    network. If none matches, consider comprehensive-income roles.
+
+    When multiple candidates match, prefer the role with the most calculation
+    arcs, using presentation-arc count as the tie-breaker. If no calculation
+    role matches, preserve the original income-first selection behavior.
     """
-    income = [r for r in rows if r["statement_category"] == "income_statement"]
+    income = [
+        r for r in rows
+        if r["statement_category"] == "income_statement"
+    ]
+    comprehensive = [
+        r for r in rows
+        if r["statement_category"] == "comprehensive_income_statement"
+    ]
+
+    if raw_arcs:
+        calc_counts = Counter(arc[0] for arc in raw_arcs)
+        for pool in (income, comprehensive):
+            if not pool:
+                continue
+
+            counts = Counter(r["statement_role"] for r in pool)
+            matching = [
+                role for role in counts
+                if select_calc_role(raw_arcs, role) is not None
+            ]
+            if matching:
+                return max(
+                    matching,
+                    key=lambda role: (
+                        calc_counts.get(select_calc_role(raw_arcs, role), 0),
+                        counts[role],
+                    ),
+                )
+
     pool = income if income else rows
-    c = Counter(r["statement_role"] for r in pool)
-    return c.most_common(1)[0][0]
+    counts = Counter(r["statement_role"] for r in pool)
+    return counts.most_common(1)[0][0]
 
 
 def build_tree(rows):
@@ -195,6 +226,10 @@ def expected_cal_name(fact_rows):
     return None
 
 def find_cal_name(session, cik, accession, expected):
+    clean_acc = accession.replace("-", "")
+    if expected and any(CACHE_DIR.glob(f"*_{clean_acc}_{expected}")):
+        return expected
+
     base = filing_base_url(cik, accession)
     try:
         r = session.get(urljoin(base, "index.json"), timeout=30)
@@ -327,9 +362,6 @@ def main():
         if not pres_rows:
             rows.append({"ticker": ticker, "status": "NO_PRESENTATION", "filing_accession": acc, "period_end": "", "totals_checked": 0, "OK": 0, "FAIL": 0, "SKIP": 0, "NO_CALC": 0, "missing": "", "filing_index_url": filing_index_url(cik, acc) if cik else ""})
             continue
-        role = select_role(pres_rows)
-        role_rows = [r for r in pres_rows if r["statement_role"] == role]
-        children, roots, negated, pres_calc_groups = build_tree(role_rows)
         periods = annual_periods(fact_rows)
         period_end = periods[-1] if periods else ""
         if not period_end:
@@ -355,6 +387,10 @@ def main():
                     calc_source = "standalone _cal.xml"
                 except Exception as e:
                     print(f"  cal load failed: {e}")
+
+        role = select_role(pres_rows, raw_arcs)
+        role_rows = [r for r in pres_rows if r["statement_role"] == role]
+        children, roots, negated, pres_calc_groups = build_tree(role_rows)
 
         if raw_arcs:
             calc_role = select_calc_role(raw_arcs, role)

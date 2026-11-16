@@ -3,7 +3,7 @@
 > **Document type:** Living research log and interim findings record
 > **Project:** NorthStar — SEC XBRL research
 > **Status:** Research only; not approved as a production NorthStar data source
-> **Latest recorded milestone:** Embedded-XSD calculation-network recovery and 250-company regression
+> **Latest recorded milestone:** Five-company income-statement production-output validation
 > **Last updated:** 2026-11-15
 > **Scope currently tested:** Income statements (IS) only
 
@@ -17,22 +17,24 @@ This document records what has been tested, what the evidence supports, what rem
 
 **Filing-level SEC XBRL is a promising candidate for reconstructing as-filed income statements, but it is not yet production-ready.**
 
-On 2026-11-15, the presentation harvester recovered 12 previously unavailable income-statement presentation networks from embedded filing XSDs. Calculation arcs were then extracted from those same XSDs and integrated into batch reconstruction. The resulting 250-company run produced 177 `RECONCILES`, 57 `PARTIAL`, 9 `FAIL`, 5 `NO_TOTALS`, 1 `NO_PRESENTATION`, and 1 `NO_FACTS`.
+On 2026-11-15, the presentation harvester recovered 12 previously unavailable income-statement presentation networks from embedded filing XSDs. Calculation arcs were extracted from those same XSDs and integrated into batch reconstruction. A subsequent role-selection improvement prioritized presentation roles with matching calculation networks and ranked matching candidates by calculation-arc count, then presentation-arc count. The latest 250-company reconstruction produced 179 `RECONCILES`, 60 `PARTIAL`, 9 `FAIL`, 0 `NO_TOTALS`, 1 `NO_PRESENTATION`, and 1 `NO_FACTS`.
 
-Among the 248 filings with facts and presentation inputs available for subtotal evaluation, 234 were classified as `RECONCILES` or `PARTIAL` (177 + 57), or **94.4%**. The remaining 14 cases (9 `FAIL` and 5 `NO_TOTALS`) are excluded from that numerator. `PARTIAL` does not mean fully reconciled or valuation-ready.
+A subsequent five-company production-output test generated complete income-statement hierarchies with reported values for MMM, AAPL, AMD, KO, and AIG. All five outputs had no missing current-period values, and all 32 detected subtotal checks passed (32 OK, 0 FAIL, 0 SKIP, 0 NO_CALC). This establishes that the detailed runner can generate substantive statement output across several different statement structures. It is an initial five-company sample, not evidence that all 179 `RECONCILES` companies will produce equally complete or comparable statements. Manual line-by-line comparison against the filed 10-K statements remains outstanding.
 
-The company-level comparison against the immediately preceding November 15 reconstruction baseline found exactly 12 changes and 238 unchanged companies. All 12 changes were the recovered embedded-XSD cases, each moving from `NO_TOTALS` to either `RECONCILES` or `PARTIAL`. No other company's status or reconciliation counts changed. Filing accessions and period ends were unchanged. The nine existing `FAIL` cases were unchanged.
+Among the 248 filings with facts and presentation inputs available for subtotal evaluation, 239 were classified as `RECONCILES` or `PARTIAL` (179 + 60), or **96.4%**. The remaining 9 cases are `FAIL`. `PARTIAL` does not mean fully reconciled or valuation-ready.
 
-The November 15 reconstruction reused the existing 250-company presentation rows and filing-fact data. Calculation arcs were newly harvested from the 12 embedded XSDs; the other companies continued through the standalone `_cal.xml` calculation-linkbase path. This was not a fresh 250-company filing-fact or presentation harvest.
+The comparison against the immediately preceding November 15 reconstruction baseline found exactly five status changes: AEP, CEG, ESS, EVRG, and HST moved from `NO_TOTALS` to `PARTIAL`, `RECONCILES`, `RECONCILES`, `PARTIAL`, and `PARTIAL`, respectively. The other 245 companies were unchanged. Filing accessions and period ends were unchanged, and all nine existing `FAIL` cases remained unchanged.
+
+The November 15 reconstruction reused the existing 250-company presentation rows and filing-fact data, plus the previously harvested embedded-XSD calculation rows. The other companies continued through the standalone `_cal.xml` calculation-linkbase path. The reconstruction also avoids an SEC filing-index lookup when the expected calculation file is already present in the local cache. This was a reconstruction-only regression, not a fresh 250-company filing-fact or presentation harvest.
 
 ### Latest batch at a glance
 
 | Result classification | Filings | Meaning |
 |---|---:|---|
-| `RECONCILES` | 177 | All detected subtotal checks reconciled to the filing's calculation linkbase |
-| `PARTIAL` | 57 | No detected arithmetic failures, but one or more checks were skipped because a component fact or usable calculation arc was missing |
+| `RECONCILES` | 179 | All detected subtotal checks reconciled to the filing's calculation linkbase |
+| `PARTIAL` | 60 | No detected arithmetic failures, but one or more checks were skipped because a component fact or usable calculation arc was missing |
 | `FAIL` | 9 | At least one identified subtotal disagreed with the filing's calculation linkbase |
-| `NO_TOTALS` | 5 | Facts and presentation were present, but no subtotal checks were identified |
+| `NO_TOTALS` | 0 | Facts and presentation were present, but no subtotal checks were identified |
 | `NO_PRESENTATION` | 1 | Facts were available, but the current process did not harvest a usable income-statement presentation |
 | `NO_FACTS` | 1 | Filing-fact harvesting failed or did not yield usable annual filing facts |
 | **Total sample** | **250** | All sample members accounted for |
@@ -40,10 +42,11 @@ The November 15 reconstruction reused the existing 250-company presentation rows
 **Calculation notes**
 
 - Group with facts/presentation available for subtotal evaluation: `250 - 1 NO_PRESENTATION - 1 NO_FACTS = 248`.
-- `RECONCILES` or `PARTIAL`: `177 + 57 = 234`, or `234 / 248 = 94.4%`.
+- `RECONCILES` or `PARTIAL`: `179 + 60 = 239`, or `239 / 248 = 96.4%`.
 - `FAIL` rate within that group: `9 / 248 = 3.6%`.
-- `NO_TOTALS`: `5 / 248 = 2.0%`.
-- The immediately preceding November 15, pre-calculation-integration baseline was 169 `RECONCILES`, 53 `PARTIAL`, 9 `FAIL`, 17 `NO_TOTALS`, 1 `NO_PRESENTATION`, and 1 `NO_FACTS`.
+- `NO_TOTALS`: `0 / 248 = 0.0%`.
+- The immediately preceding November 15, pre-role-selection-improvement baseline was 177 `RECONCILES`, 57 `PARTIAL`, 9 `FAIL`, 5 `NO_TOTALS`, 1 `NO_PRESENTATION`, and 1 `NO_FACTS`.
+- The earlier November 15, pre-calculation-integration baseline was 169 `RECONCILES`, 53 `PARTIAL`, 9 `FAIL`, 17 `NO_TOTALS`, 1 `NO_PRESENTATION`, and 1 `NO_FACTS`.
 - These classifications measure pipeline/reconciliation outcomes, not full accounting correctness, completeness of every line item, or suitability for valuation.
 
 ---
@@ -299,7 +302,7 @@ Differences are in USD millions. They are the observed deltas from the available
 
 ### Priority 3 — Determine whether `PARTIAL` statements are usable
 
-**Status as of 2026-11-14: Initial classification of all 54 `PARTIAL` cases completed.** The diagnostic reproduced the skipped-check classification from the local filing facts, presentation data, and calculation linkbases. All 54 cases had the required local inputs; this was an offline diagnostic, not a new SEC harvest.
+**Status as of 2026-11-14: Initial classification of the then-current 54 `PARTIAL` cases completed.** The diagnostic reproduced the skipped-check classification from the local filing facts, presentation data, and calculation linkbases. All 54 cases had the required local inputs; this was an offline diagnostic, not a new SEC harvest. The current November 15 benchmark contains 60 `PARTIAL` cases; the six additional cases have not yet been covered by that earlier 54-case diagnostic.
 
 Across the 54 filings, the diagnostic identified 80 skipped subtotal checks:
 
@@ -326,11 +329,11 @@ The diagnostic does not yet establish whether every `PARTIAL` statement contains
 
 **Decision:** Treat the initial classification objective as complete. Do not apply blanket aliases or globally suppress missing-component checks. Any future mapping should be supported by filing-specific presentation, calculation, and fact evidence, with material valuation metrics evaluated separately.
 
-**Next action:** Defer exhaustive issuer-by-issuer review. Revisit individual `PARTIAL` cases only when developing and testing a specific concept mapping or when validating metric-level completeness.
+**Next action:** Resume investigation using the current 60-company `PARTIAL` population. First generate and inspect detailed statement outputs for a representative subset, distinguishing complete-looking statements with skipped arithmetic checks from genuinely incomplete or ambiguous statements. Trace missing concepts through issuer labels, presentation hierarchy, calculation relationships, and reported facts. Add glossary aliases or canonical-key mappings only when filing evidence supports equivalence; retain unresolved cases and avoid blanket substitutions. Expand the diagnostic to all 60 after the initial output review establishes useful categories.
 
 ### Priority 4 — Re-run and freeze a reproducible IS benchmark
 
-**Status as of 2026-11-15: Embedded-XSD presentation and calculation recovery validated across the 250-company sample.** The current result is recorded in Section 1 and the research log. The run reused existing presentation and filing-fact data, added calculation arcs harvested from 12 embedded XSDs, and retained the standalone `_cal.xml` fallback for other filings. It was not a fresh 250-company filing-fact or presentation harvest.
+**Status as of 2026-11-15: Embedded-XSD recovery and calculation-aware role selection validated across the 250-company sample.** The current result is recorded in Section 1 and the research log. The latest run reused existing presentation, filing-fact, and embedded calculation data, with the standalone `_cal.xml` fallback for other filings. It was a reconstruction-only regression, not a fresh 250-company filing-fact or presentation harvest.
 
 For the next benchmark intended to measure broader harvest or pipeline coverage:
 
@@ -371,6 +374,8 @@ This remains a research hypothesis, not a final production decision.
 | 2026-11-12 | If no calculation network matches the selected presentation role, use an empty calculation map; never merge unrelated networks | Implemented in both runners |
 | 2026-11-14 | Use structural presentation evidence to classify income-statement roles before relying on role-name heuristics | Implemented; benchmark rerun completed |
 | 2026-11-15 | Extract presentation and calculation relationships from embedded filing XSDs when standalone linkbase files are absent | Implemented; 12-company recovery and 250-company regression validated |
+| 2026-11-15 | Prefer presentation roles with matching calculation networks; rank candidates by calculation-arc count, then presentation-arc count | Implemented; five-company targeted test and 250-company regression validated |
+| 2026-11-15 | Treat successful detailed statement generation as a separate validation layer from batch subtotal status; evaluate `PARTIAL` outputs before rejecting them | Five-company output test passed; broader population review pending |
 
 Update this table only when a decision changes or a new durable decision is made.
 
@@ -453,7 +458,53 @@ The full 250-company run produced 177 `RECONCILES`, 57 `PARTIAL`, 9 `FAIL`, 5 `N
 
 **Decision:** Retain embedded-XSD extraction as a supported general harvesting path. Preserve the separate calculation CSV and existing presentation CSV schema. Keep the standalone `_cal.xml` path as fallback. Record the 250-company result as the current IS reconstruction benchmark while preserving prior runs as historical evidence.
 
-**Next action:** Review the five remaining `NO_TOTALS` cases and the nine existing `FAIL` cases only through targeted, evidence-based methodology tests. Do not introduce issuer-specific mappings or treat skipped checks as successful reconciliations.
+**Next action:** The five remaining `NO_TOTALS` cases were addressed in the subsequent November 15 calculation-aware role-selection experiment recorded below. The nine existing `FAIL` cases remain unchanged; revisit them only through targeted, evidence-based methodology tests. Do not introduce issuer-specific mappings or treat skipped checks as successful reconciliations.
+
+### 2026-11-15 — Calculation-aware presentation-role selection and 250-company regression
+
+**Question:** Can matching calculation-network evidence improve presentation-role selection for the five remaining `NO_TOTALS` companies without changing results for the rest of the 250-company sample?
+
+**Method:** Updated `batch_reconstruct_is.py` to load calculation arcs before selecting the presentation role. Selection remains income-statement-first, then considers comprehensive-income roles when no income-statement candidate has a matching calculation network. Among matching candidates, the selector ranks by calculation-arc count first and presentation-arc count second. If no candidate matches a calculation network, the original income-first fallback remains. Also added a cache-first check that avoids requesting the SEC filing index when the expected standalone `_cal.xml` file is already cached. Tested the five remaining cases individually, then reran the 250-company reconstruction against the existing presentation, filing-fact, and calculation datasets.
+
+**Result:** The five-company test eliminated all five `NO_TOTALS` outcomes: AEP, EVRG, and HST became `PARTIAL`; CEG and ESS became `RECONCILES`. The full 250-company result changed from 177 `RECONCILES`, 57 `PARTIAL`, 9 `FAIL`, 5 `NO_TOTALS`, 1 `NO_PRESENTATION`, and 1 `NO_FACTS` to 179, 60, 9, 0, 1, and 1, respectively. Exactly those five companies changed status; the other 245 were unchanged. All nine `FAIL` cases remained unchanged. No accession or period-end changes were found.
+
+**Interpretation:** Calculation-network availability and size provide useful evidence for distinguishing competing presentation roles, including subsidiary and parent-level alternatives. Ranking by calculation-arc count resolved the CEG parent-role selection that remained after the initial matching-network preference. The result supports a general role-selection improvement across this sample, not issuer-specific mapping. Among the 248 companies with facts and presentation data, 239 were `RECONCILES` or `PARTIAL` (96.4%). `PARTIAL` remains distinct from `RECONCILES` and does not establish valuation readiness. This was a reconstruction-only regression, not a fresh full-sample SEC harvest.
+
+**Decision:** Retain calculation-aware presentation-role selection, with calculation-arc count as the primary ranking criterion and presentation-arc count as the tie-breaker. Preserve the original fallback when no matching calculation role exists. Retain the cache-first expected `_cal.xml` lookup.
+
+**Next action:** Treat the 250-company IS reconstruction benchmark as the current result for this methodology version. Move to targeted metric-completeness work for `PARTIAL` cases or the design of separate BS/CFS tests; do not rerun the full sample without a substantive methodology or harvest change.
+
+### 2026-11-15 — Five-company income-statement production-output validation
+
+**Question:** Does the detailed filing-level runner produce complete, readable income-statement hierarchies with actual reported values across different company statement structures, rather than merely returning batch reconciliation statuses?
+
+**Method:** Ran `reconstruct_income_statement_from_filing.py` for MMM, AAPL, AMD, KO, and AIG using their latest annual filing selections already represented in the 250-company benchmark. The runner used the existing local filing data and caches and generated a separate detailed CSV for each company. Reviewed the terminal-rendered hierarchies and subtotal-check summaries. No fresh 10-K harvest or line-by-line manual comparison against the filed statements was performed.
+
+**Result:** All five detailed outputs were generated:
+
+| Ticker | Filing accession | Period end | Subtotal checks | Result |
+|---|---|---|---:|---|
+| MMM | `0000066740-26-000014` | 2025-12-31 | 7/7 | All OK |
+| AAPL | `0000320193-25-000079` | 2025-09-27 | 5/5 | All OK |
+| AMD | `0000002488-26-000018` | 2025-12-27 | 7/7 | All OK |
+| KO | `0001628280-26-010047` | 2025-12-31 | 5/5 | All OK |
+| AIG | `0000005272-26-000023` | 2025-12-31 | 8/8 | All OK |
+
+Across the five statements, 32 subtotal checks passed; there were no `FAIL`, `SKIP`, or `NO_CALC` outcomes and no missing current-period values. The outputs preserved statement hierarchy and displayed reported line items and values. The examples included materially different structures: manufacturing, technology, semiconductor costs and acquired-intangible amortization, consumer products with investment income, and insurance premiums and claims.
+
+Detailed output files:
+
+- `runlogs/reconstructed_IS_MMM_000006674026000014.csv`
+- `runlogs/reconstructed_IS_AAPL_000032019325000079.csv`
+- `runlogs/reconstructed_IS_AMD_000000248826000018.csv`
+- `runlogs/reconstructed_IS_KO_000162828026010047.csv`
+- `runlogs/reconstructed_IS_AIG_000000527226000023.csv`
+
+**Interpretation:** This is positive evidence that the detailed runner can produce coherent, numerically checked income-statement output for a varied five-company sample. It supports proceeding to broader output-quality sampling. It does not establish that all 179 `RECONCILES` companies have equivalent statement completeness, that all line items have been manually matched to the 10-K face statements, or that the output is valuation-ready. A successful subtotal check validates the tested calculation relationship, not every classification or mapping decision.
+
+**Decision:** Treat detailed statement generation as a separate validation layer from batch reconciliation status. Do not infer that `PARTIAL` outputs are unusable solely from their status. Investigate their actual hierarchies and reported facts; consider glossary aliases or canonical-key additions only when supported by filing-specific evidence and reusable cross-company patterns.
+
+**Next action:** Begin a focused review of the current 60 `PARTIAL` cases. Generate detailed outputs for a representative subset, classify the reasons for partial status, and test whether missing concepts are recoverable through existing aliases, glossary coverage, or calculation/presentation interpretation. Preserve unresolved cases rather than forcing a mapping.
 
 ### YYYY-MM-DD — Short experiment / milestone title
 
@@ -478,4 +529,6 @@ The full 250-company run produced 177 `RECONCILES`, 57 `PARTIAL`, 9 `FAIL`, 5 `N
 - **2026-11-12:** Corrected calculation-role mismatch handling in both income-statement reconstruction runners; added focused role-scope regression checks and documented the HST evidence. No benchmark rerun was performed.
 - **2026-11-14:** Recorded the structural presentation-role classifier and the 250-company reconstruction rerun. Updated current benchmark counts and denominator while retaining the October 8 results as historical evidence. The rerun reused existing datasets and cache; it was not a fresh SEC data harvest.
 - **2026-11-14:** Classified 80 skipped subtotal checks across all 54 `PARTIAL` income-statement cases. Documented missing-component patterns, issuer-specific tagging differences, and the distinction between potentially benign omissions and unresolved residuals. Closed the initial classification objective without introducing blanket concept aliases or treating `PARTIAL` as valuation-ready.
-- **2026-11-15:** Recorded embedded-XSD presentation and calculation recovery, the 12-company calculation validation, and the 250-company regression. Updated current counts to 177 `RECONCILES`, 57 `PARTIAL`, 9 `FAIL`, 5 `NO_TOTALS`, 1 `NO_PRESENTATION`, and 1 `NO_FACTS`; documented that only the 12 recovered companies changed and the other 238 were unchanged.
+- **2026-11-15:** Recorded embedded-XSD presentation and calculation recovery, the 12-company calculation validation, and the initial 250-company regression. Preserved the 177 `RECONCILES`, 57 `PARTIAL`, 9 `FAIL`, 5 `NO_TOTALS`, 1 `NO_PRESENTATION`, and 1 `NO_FACTS` result as the intermediate benchmark.
+- **2026-11-15:** Recorded calculation-aware presentation-role selection and its five-company targeted test and 250-company regression. Updated the current benchmark to 179 `RECONCILES`, 60 `PARTIAL`, 9 `FAIL`, 0 `NO_TOTALS`, 1 `NO_PRESENTATION`, and 1 `NO_FACTS`; documented that exactly five companies changed and the other 245 were unchanged.
+- **2026-11-15:** Recorded detailed income-statement output validation for MMM, AAPL, AMD, KO, and AIG. All five statement files were generated, with 32/32 subtotal checks passing and no missing current-period values. Distinguished this initial output-quality test from both the 250-company status benchmark and pending manual 10-K comparison; prioritized investigation of the current 60 `PARTIAL` cases.
