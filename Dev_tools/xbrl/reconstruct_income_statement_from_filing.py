@@ -26,6 +26,7 @@ from xml.etree import ElementTree as ET
 import requests
 
 from northstar.data.sources.sec_edgar import SECEdgarClient
+from northstar.data.transforms.sec_xbrl_dimensional import (resolve_dimensional_component, resolve_dimensional_components)
 
 RUNLOGS = Path("Dev_tools/xbrl/runlogs")
 CACHE_ROOT = xbrl_cache_root(RUNLOGS)
@@ -121,17 +122,56 @@ def load_presentation_index() -> dict:
         return index
     with path.open(newline="", encoding="utf-8") as h:
         for r in csv.DictReader(h):
-            if r["statement_category"] == "income_statement":
+            if r["statement_category"] in (
+                "income_statement",
+                "comprehensive_income_statement",
+            ):
                 # Normalize accession key by removing hyphens
                 clean_acc = r["filing_accession"].replace("-", "")
                 index[(r["ticker"], clean_acc)].append(r)
     return index
 
 
-def select_role(rows: list) -> str:
-    counts = Counter()
-    for r in rows:
-        counts[r["statement_role"]] += 1
+def select_role(rows: list, raw_arcs: list | None = None) -> str:
+    """
+    Prefer an income-statement presentation role with a matching calculation
+    network. If none matches, consider comprehensive-income roles.
+
+    When multiple candidates match, prefer the role with the most calculation
+    arcs, using presentation-arc count as the tie-breaker. If no calculation
+    role matches, preserve the original income-first selection behavior.
+    """
+    income = [
+        r for r in rows
+        if r["statement_category"] == "income_statement"
+    ]
+    comprehensive = [
+        r for r in rows
+        if r["statement_category"] == "comprehensive_income_statement"
+    ]
+
+    if raw_arcs:
+        calc_counts = Counter(arc[0] for arc in raw_arcs)
+        for pool in (income, comprehensive):
+            if not pool:
+                continue
+
+            counts = Counter(r["statement_role"] for r in pool)
+            matching = [
+                role for role in counts
+                if select_calc_role(raw_arcs, role) is not None
+            ]
+            if matching:
+                return max(
+                    matching,
+                    key=lambda role: (
+                        calc_counts.get(select_calc_role(raw_arcs, role), 0),
+                        counts[role],
+                    ),
+                )
+
+    pool = income if income else rows
+    counts = Counter(r["statement_role"] for r in pool)
     return counts.most_common(1)[0][0]
 
 
@@ -173,31 +213,65 @@ def build_tree(rows: list):
     return children, meta, roots, negated, pres_calc_groups
 
 
-def annual_periods(fact_rows: list) -> list:
-    periods = set()
-    for r in fact_rows:
-        if r["period_start"] and r["period_end"] and r["unit"] == "USD":
-            periods.add(r["period_end"])
-    return sorted(periods)
+def annual_periods(fact_rows):
+    from datetime import date
 
-
-def build_value_map(fact_rows: list, period_end: str) -> dict:
-    values = {}
-    for r in fact_rows:
-        if r["unit"] != "USD":
+    period_concepts = {}
+    for row in fact_rows:
+        if row.get('unit') != 'USD':
             continue
-        if r["period_end"] != period_end:
+        if not row.get('period_start') or not row.get('period_end'):
             continue
-        if r["dimension_count"] != "0":
-            continue
-        if not r["period_start"]:
+        if row.get('dimension_count') != '0':
             continue
         try:
-            values[r["concept"]] = float(r["value"])
+            start = date.fromisoformat(row['period_start'])
+            end = date.fromisoformat(row['period_end'])
         except (TypeError, ValueError):
             continue
-    return values
+        if 330 <= (end - start).days <= 380:
+            period_concepts.setdefault(row['period_end'], set()).add(row['concept'])
 
+    return sorted(period_concepts, key=lambda end: (len(period_concepts[end]), end))
+
+def build_value_map(fact_rows: list, period_end: str) -> dict:
+    candidates = {}
+    for r in fact_rows:
+        if r["unit"] != "USD" or r["period_end"] != period_end:
+            continue
+        if r["dimension_count"] != "0" or not r["period_start"]:
+            continue
+        try:
+            value = float(r["value"])
+        except (TypeError, ValueError):
+            continue
+
+        decimals = str(r.get("decimals", "")).strip().upper()
+        if decimals == "INF":
+            precision = (2, 0)
+        else:
+            try:
+                precision = (1, int(decimals))
+            except (TypeError, ValueError):
+                precision = (0, 0)
+
+        candidates.setdefault(r["concept"], []).append((precision, value))
+
+    values = {}
+    for concept, facts in candidates.items():
+        best_precision = max(precision for precision, _ in facts)
+        best_values = {
+            value for precision, value in facts
+            if precision == best_precision
+        }
+        if len(best_values) > 1:
+            raise ValueError(
+                f"Conflicting equally precise facts for {concept} "
+                f"at {period_end}: {sorted(best_values)} "
+                f"(precision {best_precision})"
+            )
+        values[concept] = best_values.pop()
+    return values
 
 def expected_cal_name(fact_rows: list) -> str | None:
     for r in fact_rows:
@@ -368,7 +442,17 @@ def reconstruct(session, ticker: str, labels: dict, pres_index: dict,
         print(f"\n=== {ticker} ===\nNo income-statement presentation rows for {ticker} ({accession}). Skipping.\n")
         return
 
-    role = select_role(rows)
+    # Load calculation arcs before selecting the presentation role so role
+    # selection can use the same calculation-aware logic as the batch runner.
+    cal_name = find_cal_name(
+        session, cik, accession, expected_cal_name(fact_rows), ticker
+    )
+    raw_arcs = []
+    if cal_name:
+        cal_text = load_cal_xml(session, ticker, cik, accession, cal_name)
+        raw_arcs = parse_calc_raw(cal_text)
+
+    role = select_role(rows, raw_arcs)
     role_rows = [r for r in rows if r["statement_role"] == role]
     children, meta, roots, negated, pres_calc_groups = build_tree(role_rows)
 
@@ -384,10 +468,7 @@ def reconstruct(session, ticker: str, labels: dict, pres_index: dict,
 
     values = build_value_map(fact_rows, period_end)
 
-    cal_name = find_cal_name(session, cik, accession, expected_cal_name(fact_rows), ticker)
     if cal_name:
-        cal_text = load_cal_xml(session, ticker, cik, accession, cal_name)
-        raw_arcs = parse_calc_raw(cal_text)
         calc_role = select_calc_role(raw_arcs, role)
         if calc_role is None:
             calc_map = {}
@@ -432,13 +513,61 @@ def reconstruct(session, ticker: str, labels: dict, pres_index: dict,
         else:
             return "NO_CALC", "no summation arcs"
 
-        if any(item not in values for item, _ in group):
+        component_values = dict(values)
+        missing_items = [
+            (item, weight) for item, weight in group
+            if item not in component_values
+        ]
+        dimensional_detail = ""
+        unreported_detail = ""
+
+        if len(missing_items) == 1:
+            missing_item, missing_weight = missing_items[0]
+            if missing_weight != 0:
+                known_total = sum(
+                    weight * component_values[item]
+                    for item, weight in group
+                    if item in component_values
+                )
+                expected = (reported - known_total) / missing_weight
+                resolved = resolve_dimensional_component(
+                    session, ticker, cik, accession, fact_rows, period_end,
+                    node, reported, missing_item, expected, tol, CACHE_DIR,
+                )
+                if resolved is not None:
+                    component_values[missing_item], dimensional_detail = resolved
+                elif abs(expected * missing_weight) <= tol:
+                    unreported_detail = (
+                        f"unreported component {missing_item}; "
+                        "remaining reported components reconcile within tolerance"
+                    )
+        elif len(missing_items) > 1:
+            known_total = sum(
+                weight * component_values[item]
+                for item, weight in group
+                if item in component_values
+            )
+            resolved_multi = resolve_dimensional_components(
+                ticker, fact_rows, period_end, node, reported,
+                missing_items, known_total, tol,
+            )
+            if resolved_multi is not None:
+                recovered, dimensional_detail = resolved_multi
+                component_values.update(recovered)
+
+        if unreported_detail:
+            return "OK", f"{source}, {len(group) - 1} reported components; {unreported_detail}"
+
+        if any(item not in component_values for item, _ in group):
             return "SKIP", "component value missing"
 
-        computed = sum(w * values[item] for item, w in group)
+        computed = sum(w * component_values[item] for item, w in group)
         delta = computed - reported
         if abs(delta) <= tol:
-            return "OK", f"{source}, {len(group)} components"
+            detail = f"{source}, {len(group)} components"
+            if dimensional_detail:
+                detail += f"; dimensional recovery: {dimensional_detail}"
+            return "OK", detail
         return "FAIL", (
             f"{source}: computed {computed / 1e6:,.1f}M vs reported "
             f"{reported / 1e6:,.1f}M (delta {delta / 1e6:+,.1f}M)"

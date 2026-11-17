@@ -506,6 +506,48 @@ Detailed output files:
 
 **Next action:** Begin a focused review of the current 60 `PARTIAL` cases. Generate detailed outputs for a representative subset, classify the reasons for partial status, and test whether missing concepts are recoverable through existing aliases, glossary coverage, or calculation/presentation interpretation. Preserve unresolved cases rather than forcing a mapping.
 
+### 2026-11-16 — Advertising and marketing expense classification
+
+**Date:** 2026-11-16
+
+#### Classification decision
+
+The following US-GAAP concepts are classified as operating expenses:
+
+- `us-gaap:AdvertisingExpense`
+- `us-gaap:MarketingAndAdvertisingExpense`
+- `us-gaap:MarketingExpense`
+
+The classification is based on their economic meaning, not whether a company separately presents the expense on the face of its income statement. These concepts retain separate provisional canonical identities. They are not aliases and their values must not be combined automatically.
+
+All three use:
+- `canonical_section = operating_expenses`
+- `concept_role = line_item`
+- `mapping_status = provisional`
+- `placement_method = semantic`
+
+#### Standardized export validation
+
+The post-classification export covered 249 companies, 747 annual company-periods, and 710 canonical concepts, producing 530,370 rows.
+
+Each of the three concepts has 747 company-period rows. Results:
+
+| Concept | Reported observations | Presented on face | Not on face | No presentation evidence |
+|---|---:|---:|---:|---:|
+| Advertising Expense | 213 | 6 | 678 | 63 |
+| Marketing and Advertising Expense | 63 | 15 | 669 | 63 |
+| Marketing Expense | 33 | 21 | 663 | 63 |
+
+These results demonstrate that presentation status and economic classification are independent. A concept can be classified as an operating expense while its reported fact is not separately presented on the income statement.
+
+The export's overall value-status counts remained unchanged after this classification refinement:
+- Reported: 31,612
+- Derived: 130
+- Not reported: 498,603
+- Dimensional only: 25
+
+The 130 derived observations remain gross profit calculations from reported revenue less reported cost of revenue. This classification change did not alter fact selection, reported values, or derivation logic.
+
 ### YYYY-MM-DD — Short experiment / milestone title
 
 **Question:** What uncertainty was this experiment intended to resolve?
@@ -523,6 +565,7 @@ Detailed output files:
 ---
 
 ## 10. Change history
+- **2026-11-16:** Documented semantic operating-expense classification for advertising and marketing concepts, preserving separate provisional identities; recorded 249-company standardized export validation.
 
 - **2026-10-08:** Consolidated duplicate 250-company result sections; established a single current-status summary; retained prior 100-company results as historical context; clarified the 94.9% denominator and distinction between `RECONCILES`, `PARTIAL`, and valuation readiness; organized open issues, decisions, and a repeatable research-log template.
 - **2026-11-12:** Recorded the diagnostic review of all 15 failed subtotal checks across 11 filings; documented the HST calculation-role fallback defect, linked discrepancy patterns, missing-component skips, and remaining uncertainties. Preserved the original 2026-10-08 benchmark results.

@@ -34,6 +34,7 @@ from xml.etree import ElementTree as ET
 import requests
 
 from northstar.data.sources.sec_edgar import SECEdgarClient
+from northstar.data.transforms.sec_xbrl_dimensional import (resolve_dimensional_component, resolve_dimensional_components)
 
 RUNLOGS = Path("Dev_tools/xbrl/runlogs")
 CACHE_ROOT = xbrl_cache_root(RUNLOGS)
@@ -205,18 +206,64 @@ def build_tree(rows):
     return children, roots, negated, calc_groups
 
 def annual_periods(fact_rows):
-    return sorted({r["period_end"] for r in fact_rows if r["period_start"] and r["period_end"] and r["unit"] == "USD"})
+    from datetime import date
 
-def build_value_map(fact_rows, period_end):
-    vals = {}
-    for r in fact_rows:
-        if r["unit"] != "USD" or r["period_end"] != period_end or r["dimension_count"] != "0" or not r["period_start"]:
+    period_concepts = {}
+    for row in fact_rows:
+        if row.get('unit') != 'USD':
+            continue
+        if not row.get('period_start') or not row.get('period_end'):
+            continue
+        if row.get('dimension_count') != '0':
             continue
         try:
-            vals[r["concept"]] = float(r["value"])
+            start = date.fromisoformat(row['period_start'])
+            end = date.fromisoformat(row['period_end'])
         except (TypeError, ValueError):
             continue
-    return vals
+        if 330 <= (end - start).days <= 380:
+            period_concepts.setdefault(row['period_end'], set()).add(row['concept'])
+
+    return sorted(period_concepts, key=lambda end: (len(period_concepts[end]), end))
+
+def build_value_map(fact_rows, period_end):
+    candidates = {}
+    for r in fact_rows:
+        if r["unit"] != "USD" or r["period_end"] != period_end:
+            continue
+        if r["dimension_count"] != "0" or not r["period_start"]:
+            continue
+        try:
+            value = float(r["value"])
+        except (TypeError, ValueError):
+            continue
+
+        decimals = str(r.get("decimals", "")).strip().upper()
+        if decimals == "INF":
+            precision = (2, 0)
+        else:
+            try:
+                precision = (1, int(decimals))
+            except (TypeError, ValueError):
+                precision = (0, 0)
+
+        candidates.setdefault(r["concept"], []).append((precision, value))
+
+    values = {}
+    for concept, facts in candidates.items():
+        best_precision = max(precision for precision, _ in facts)
+        best_values = {
+            value for precision, value in facts
+            if precision == best_precision
+        }
+        if len(best_values) > 1:
+            raise ValueError(
+                f"Conflicting equally precise facts for {concept} "
+                f"at {period_end}: {sorted(best_values)} "
+                f"(precision {best_precision})"
+            )
+        values[concept] = best_values.pop()
+    return values
 
 def expected_cal_name(fact_rows):
     for r in fact_rows:
@@ -415,6 +462,10 @@ def main():
 
         counts = Counter()
         missing = []
+        skip_details = []
+        dimensional_attempts = []
+        dimensional_resolved = []
+        dimensional_rejected = []
 
         def check_total(node, reported):
             if node in calc_map:
@@ -423,9 +474,83 @@ def main():
                 group = [(c, 1.0) for c in pres_calc_groups[node]]
             else:
                 return "NO_CALC"
-            if any(it not in values for it, _ in group):
+
+            component_values = dict(values)
+            missing_items = [
+                (item, weight) for item, weight in group
+                if item not in component_values
+            ]
+
+            unreported_zero_residual = False
+
+            if len(missing_items) == 1:
+                missing_item, missing_weight = missing_items[0]
+                if missing_weight != 0:
+                    known_total = sum(
+                        weight * component_values[item]
+                        for item, weight in group
+                        if item in component_values
+                    )
+                    expected = (reported - known_total) / missing_weight
+                    dimensional_attempts.append(
+                        f"{node} -> {missing_item}"
+                    )
+                    resolved = resolve_dimensional_component(
+                        session, ticker, cik, acc, fact_rows, period_end,
+                        node, reported, missing_item, expected,
+                        args.tolerance, CACHE_DIR,
+                    )
+                    if resolved is not None:
+                        component_values[missing_item] = resolved[0]
+                        dimensional_resolved.append(
+                            f"{node} -> {missing_item} = "
+                            f"{resolved[0]:.2f}; {resolved[1]}"
+                        )
+                    elif abs(expected * missing_weight) <= args.tolerance:
+                        unreported_zero_residual = True
+                    else:
+                        dimensional_rejected.append(
+                            f"{node} -> {missing_item}; "
+                            f"expected={expected:.2f}"
+                        )
+            elif len(missing_items) > 1:
+                known_total = sum(
+                    weight * component_values[item]
+                    for item, weight in group
+                    if item in component_values
+                )
+                dimensional_attempts.extend(
+                    f"{node} -> {item}" for item, _ in missing_items
+                )
+                resolved_multi = resolve_dimensional_components(
+                    ticker, fact_rows, period_end, node, reported,
+                    missing_items, known_total, args.tolerance,
+                )
+                if resolved_multi is not None:
+                    recovered, detail = resolved_multi
+                    component_values.update(recovered)
+                    dimensional_resolved.append(
+                        f"{node} -> {detail}"
+                    )
+                else:
+                    dimensional_rejected.append(
+                        f"{node} -> multiple missing components; "
+                        "no unique dimensional set reconciles"
+                    )
+
+            if unreported_zero_residual:
+                return "OK"
+
+            unavailable = [
+                it for it, _ in group if it not in component_values
+            ]
+            if unavailable:
+                skip_details.append(
+                    f"{node}: missing component values: "
+                    f"{', '.join(unavailable)}"
+                )
                 return "SKIP"
-            comp = sum(w * values[it] for it, w in group)
+            comp = sum(w * component_values[it] for it, w in group)
             return "OK" if abs(comp - reported) <= args.tolerance else "FAIL"
 
         # Walk only totals
@@ -441,6 +566,9 @@ def main():
                 if v is None:
                     counts["SKIP"] += 1
                     missing.append(node.split(":")[-1])
+                    skip_details.append(
+                        f"{node}: reported subtotal value missing"
+                    )
                 else:
                     counts[check_total(node, v)] += 1
             for ch in children.get(node, []):
@@ -470,12 +598,26 @@ def main():
             "SKIP": counts["SKIP"],
             "NO_CALC": counts["NO_CALC"],
             "missing": "|".join(missing[:10]),
+            "skip_details": " | ".join(skip_details),
+            "dimensional_attempts": len(dimensional_attempts),
+            "dimensional_resolved": len(dimensional_resolved),
+            "dimensional_rejected": len(dimensional_rejected),
+            "dimensional_details": " | ".join(
+                dimensional_resolved + dimensional_rejected
+            ),
             "filing_index_url": filing_index_url(cik, acc),
         })
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", newline="", encoding="utf-8") as h:
-        w = csv.DictWriter(h, fieldnames=["ticker","status","filing_accession","period_end","totals_checked","OK","FAIL","SKIP","NO_CALC","missing","filing_index_url"])
+        w = csv.DictWriter(h, fieldnames=[
+            "ticker", "status", "filing_accession", "period_end",
+            "totals_checked", "OK", "FAIL", "SKIP", "NO_CALC",
+            "missing", "skip_details", "dimensional_attempts",
+            "dimensional_resolved",
+            "dimensional_rejected", "dimensional_details",
+            "filing_index_url",
+        ])
         w.writeheader()
         w.writerows(rows)
 

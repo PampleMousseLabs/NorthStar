@@ -9,7 +9,7 @@ Examples:
 Output:
     Dev_tools/xbrl/runlogs/filing_facts_<TICKER>_<ACCESSION>.csv
 
-Keeps only non-dimensional annual USD facts by default.
+Keeps annual numeric facts across XBRL units; non-dimensional by default.
 Use --include-dimensional to keep segmented facts too.
 """
 
@@ -281,21 +281,16 @@ def parse_annual_facts(root, xml_text, contexts, units, include_dimensional) -> 
         dims = ctx["dimensions"]
         if dims and not include_dimensional:
             continue
+
         if lname == "nonFraction":
             concept = (elem.attrib.get("name") or "").strip()
             if not concept:
                 continue
             uref = elem.attrib.get("unitRef") or elem.attrib.get("unitref") or ""
             unit = units.get(uref, uref)
-            if unit != "USD":
-                continue
             v = parse_inline_numeric(elem)
             if v is None:
                 continue
-            rows.append({"concept": concept, "value": str(v), "unit": unit,
-                         "context_ref": ctx_ref, "period_start": start, "period_end": end,
-                         "dimension_count": len(dims), "dimensions": " | ".join(dims),
-                         "scale": elem.attrib.get("scale", ""), "sign": elem.attrib.get("sign", "")})
         elif lname == "nonNumeric":
             continue
         else:
@@ -303,28 +298,39 @@ def parse_annual_facts(root, xml_text, contexts, units, include_dimensional) -> 
             if not uref:
                 continue
             unit = units.get(uref, uref)
-            if unit != "USD":
-                continue
             concept = concept_from_element(elem, ns_map)
             if not concept or ":" not in concept:
                 continue
             v = parse_instance_numeric(elem)
             if v is None:
                 continue
-            rows.append({"concept": concept, "value": str(v), "unit": unit,
-                         "context_ref": ctx_ref, "period_start": start, "period_end": end,
-                         "dimension_count": len(dims), "dimensions": " | ".join(dims),
-                         "scale": "", "sign": ""})
+
+        rows.append({
+            "concept": concept,
+            "value": str(v),
+            "unit": unit,
+            "context_ref": ctx_ref,
+            "period_start": start,
+            "period_end": end,
+            "dimension_count": len(dims),
+            "dimensions": " | ".join(dims),
+            "scale": elem.attrib.get("scale", ""),
+            "sign": elem.attrib.get("sign", ""),
+            "decimals": elem.attrib.get("decimals", ""),
+        })
+
     seen = set()
     uniq = []
     for r in rows:
-        k = (r["concept"], r["value"], r["unit"], r["period_start"], r["period_end"], r["dimensions"])
-        if k in seen:
-            continue
-        seen.add(k)
-        uniq.append(r)
+        k = (
+            r["concept"], r["value"], r["unit"], r["context_ref"],
+            r["period_start"], r["period_end"], r["dimensions"],
+            r["decimals"]
+        )
+        if k not in seen:
+            seen.add(k)
+            uniq.append(r)
     return uniq
-
 
 def main() -> None:
     import argparse
@@ -359,7 +365,7 @@ def main() -> None:
             print(f"  tried {cand['form']} {cand['accession']}: {e}")
             continue
     if not rows or not used:
-        print(f"Ticker: {ticker} CIK: {cik} -- no annual USD facts found in first {min(4, len(cands))} filings")
+        print(f"Ticker: {ticker} CIK: {cik} -- no annual numeric facts found in first {min(4, len(cands))} filings")
         return
     for r in rows:
         r.update({"ticker": ticker, "cik": cik, "form": used["form"],
@@ -370,7 +376,7 @@ def main() -> None:
     out = RUNLOGS / f"filing_facts_{ticker}_{used['accession'].replace('-', '')}.csv"
     fields = ["ticker", "cik", "form", "filing_date", "filing_accession", "filing_index_url",
               "inline_xml_url", "concept", "value", "unit", "context_ref",
-              "period_start", "period_end", "dimension_count", "dimensions", "scale", "sign"]
+              "period_start", "period_end", "dimension_count", "dimensions", "scale", "sign", "decimals"]
     with out.open("w", newline="", encoding="utf-8") as h:
         w = csv.DictWriter(h, fieldnames=fields)
         w.writeheader()
@@ -378,19 +384,22 @@ def main() -> None:
     ext = [r for r in rows if ":" in r["concept"] and not r["concept"].startswith(("us-gaap:", "dei:", "srt:", "invest:"))]
     print(f"Ticker: {ticker} CIK: {cik}")
     print(f"Filing: {used['form']} | {used['accession']} | filed {used['filing_date']}")
-    print(f"Annual non-dimensional numeric facts: {len(rows)}")
+    print(f"Annual numeric facts: {len(rows)}")
     print(f"Company-extension facts: {len(ext)}")
     print(f"Wrote {out}")
     if args.terms:
         terms = [t.lower().replace(" ", "") for t in args.terms]
-        print("\nMatching annual default-context facts:")
+        print("\nMatching annual facts:")
         shown = 0
         for r in rows:
             cn = re.sub(r"[^a-z0-9]+", "", r["concept"].lower())
             if any(t in cn for t in terms):
                 try:
-                    m = float(r["value"]) / 1_000_000
-                    disp = f"{m:,.1f}M"
+                    if r["unit"] == "USD":
+                        m = float(r["value"]) / 1_000_000
+                        disp = f"{m:,.1f}M"
+                    else:
+                        disp = r["value"]
                 except ValueError:
                     disp = r["value"]
                 print(f"  {r['concept']:<70} {disp:>14}  unit={r['unit']}")
